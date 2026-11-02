@@ -1,0 +1,6 @@
+-r requirements.txt
+pytest
+httpx
+scikit-image
+certifi
+psutil

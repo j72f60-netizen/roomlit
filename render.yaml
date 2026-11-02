@@ -1,0 +1,22 @@
+# Render Blueprint for Roomlit.  One web service, one instance (job state lives in memory by design).
+services:
+  - type: web
+    name: roomlit
+    runtime: python
+    plan: starter            # 512 MB RAM / 0.5 CPU; the engine is sized for this
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*' --timeout-keep-alive 75
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: APP_ENV
+        value: production
+      - key: APP_USERNAME
+        value: admin
+      - key: APP_PASSWORD
+        sync: false           # set in the dashboard
+      - key: SESSION_SECRET
+        generateValue: true

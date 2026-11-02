@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#0f172a">
+  <title>Roomlit</title>
+  <link rel="icon" type="image/svg+xml" href="/static/mark.svg">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img class="mark" src="/static/mark.svg" alt="" width="30" height="30">
+      <div class="brand-text">
+        <strong>Roomlit</strong>
+        <span data-i18n="app_title">Photo editor for property listings</span>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button type="button" class="btn ghost sm" id="btn-lang" aria-label="Language">العربية</button>
+      <button type="button" class="btn ghost sm hidden" id="btn-logout" data-i18n="sign_out">Sign out</button>
+    </div>
+  </header>
+
+  <!-- ===================== login ===================== -->
+  <main id="view-login" class="center hidden">
+    <form id="login-form" class="card login" autocomplete="on">
+      <h1 data-i18n="sign_in">Sign in</h1>
+      <label><span data-i18n="username">Username</span>
+        <input id="login-user" name="username" autocomplete="username" required autocapitalize="none" spellcheck="false">
+      </label>
+      <label><span data-i18n="password">Password</span>
+        <input id="login-pass" name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <p id="login-error" class="error hidden" role="alert"></p>
+      <button class="btn primary block" type="submit" data-i18n="sign_in">Sign in</button>
+    </form>
+  </main>
+
+  <!-- ===================== app ===================== -->
+  <main id="view-app" class="wrap hidden">
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+
+    <!-- start screen -->
+    <section id="sec-start">
+      <div class="card">
+        <h2><span class="step">1</span><span data-i18n="step_mode">Choose an editing mode</span></h2>
+        <div id="modes" class="modes" role="radiogroup"></div>
+      </div>
+
+      <div class="card">
+        <h2><span class="step">2</span><span data-i18n="step_add">Add photos</span></h2>
+        <div id="drop" class="drop" tabindex="0">
+          <svg viewBox="0 0 24 24" class="ico-xl" aria-hidden="true"><path d="M12 16V5m0 0L7.5 9.5M12 5l4.5 4.5M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <p class="drop-title" data-i18n="drop_title">Drag photos, folders or ZIP files here</p>
+          <p class="muted" data-i18n="drop_sub">Works straight from your external drive. Your original files are never changed.</p>
+          <div class="row center-row">
+            <button type="button" class="btn primary" id="pick-photos" data-i18n="btn_photos">Choose photos</button>
+            <button type="button" class="btn" id="pick-folder" data-i18n="btn_folder">Choose folder</button>
+            <button type="button" class="btn" id="pick-zip" data-i18n="btn_zip">Choose ZIP</button>
+          </div>
+          <p class="muted small" id="limits"></p>
+        </div>
+        <input type="file" id="in-photos" multiple accept="image/*,.heic,.heif,.tif,.tiff" class="hidden">
+        <input type="file" id="in-folder" webkitdirectory directory multiple class="hidden">
+        <input type="file" id="in-zip" accept=".zip,application/zip" class="hidden">
+      </div>
+
+      <div id="old-jobs" class="card hidden">
+        <h2 data-i18n="jobs_title">Your jobs on the server</h2>
+        <ul id="old-jobs-list" class="joblist"></ul>
+      </div>
+    </section>
+
+    <!-- job screen -->
+    <section id="sec-job" class="hidden">
+      <div class="card job-head">
+        <div class="job-title">
+          <h2 id="job-heading"></h2>
+          <p class="muted small" id="job-sub"></p>
+        </div>
+        <div class="job-actions">
+          <button class="btn primary" id="btn-start" type="button"></button>
+          <a class="btn primary hidden" id="btn-zip" href="#" data-i18n="download_all">Download all (ZIP)</a>
+          <button class="btn" id="btn-new" type="button" data-i18n="add_more">Add more photos</button>
+          <button class="btn danger-o" id="btn-delete" type="button" data-i18n="delete_job">Delete job</button>
+        </div>
+        <div id="progress" class="progress hidden"><div class="bar"><i id="bar"></i></div><span id="progress-text" class="small"></span></div>
+        <div id="upload-progress" class="progress hidden"><div class="bar"><i id="ubar"></i></div><span id="uprogress-text" class="small"></span></div>
+        <div id="banner-dl" class="banner hidden">
+          <span data-i18n="dl_started">Download started. When your ZIP has finished saving, remove the photos from the server.</span>
+          <button class="btn danger" id="btn-delete-now" type="button" data-i18n="delete_now">Delete from server now</button>
+        </div>
+        <div id="notes" class="notes"></div>
+        <div class="reedit hidden" id="reedit">
+          <span data-i18n="reedit_all_label">Re-edit all photos with</span>
+          <select id="reedit-mode"></select>
+          <button class="btn sm" id="btn-reedit-all" type="button" data-i18n="apply">Apply</button>
+        </div>
+      </div>
+      <div id="grid"></div>
+    </section>
+  </main>
+
+  <!-- compare modal -->
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box">
+      <div class="modal-bar">
+        <button class="btn ghost sm" id="m-prev" type="button" aria-label="Previous">&#8249;</button>
+        <div class="modal-name"><strong id="m-name"></strong><span class="muted small" id="m-meta"></span></div>
+        <button class="btn ghost sm" id="m-next" type="button" aria-label="Next">&#8250;</button>
+        <button class="btn ghost sm" id="m-close" type="button" aria-label="Close">&#10005;</button>
+      </div>
+      <div class="cmp-stage">
+        <div class="cmp" id="cmp" dir="ltr">
+          <img class="cmp-after" id="cmp-after" alt="" draggable="false">
+          <div class="cmp-clip"><img class="cmp-before" id="cmp-before" alt="" draggable="false"></div>
+          <div class="cmp-handle" id="cmp-handle" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"><span></span></div>
+          <span class="tag tag-l" id="tag-before">Before</span>
+          <span class="tag tag-r" id="tag-after">After</span>
+        </div>
+        <p id="m-pending" class="muted hidden"></p>
+      </div>
+      <div class="modal-foot">
+        <label class="inline"><span data-i18n="mode_label">Mode</span>
+          <select id="m-mode"></select></label>
+        <button class="btn" id="m-reedit" type="button" data-i18n="reedit">Re-edit this photo</button>
+        <a class="btn primary" id="m-dl" href="#" data-i18n="download">Download</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
