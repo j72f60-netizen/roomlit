@@ -7,11 +7,18 @@ Layout of one job (all under DATA_DIR/jobs/<random id>/, never served directly):
     tmp/                    in-flight uploads
     result.zip              built on demand
 State is held in memory only; a restart discards everything (by design).
+
+An *apartment set* is the folder that directly contains photos.  Duplicates, room types and the gallery order
+are decided per set and never mix photos of different folders.
 """
 from __future__ import annotations
 
+import csv
+import io
 import logging
 import os
+import posixpath
+import re
 import secrets
 import shutil
 import threading
@@ -20,11 +27,14 @@ import unicodedata
 import zipfile
 from dataclasses import dataclass, field
 
-from . import ingest
+from . import ingest, ordering
 from .config import Settings
+from .engine.organize.classes import CLASSES
 from .engine.presets import DEFAULT_MODE, PRESETS
 
 log = logging.getLogger("roomlit.store")
+
+LOG_NAME = "Roomlit log.csv"
 
 
 class JobError(Exception):
@@ -40,8 +50,9 @@ class Item:
     id: int
     parts: list[str]                 # sanitised client path, root folder first
     size: int
-    group: str
-    out_rel: str
+    group: str                       # folder that directly contains the photo (= apartment set key)
+    out_rel: str                     # original relative path (extension adjusted only when the format must change)
+    set_id: int = 0
     status: str = "uploaded"         # uploaded|analyzing|ready|queued|processing|done|failed
     mode: str | None = None
     error: str | None = None
@@ -51,10 +62,46 @@ class Item:
     seconds: float = 0.0
     version: int = 0
     analysis: dict | None = None
+    # --- organisation
+    organized: bool = False
+    room: str | None = None          # room type shown to the user (a suggestion until the user sets it)
+    room_conf: float = 0.0
+    room_sure: bool = False
+    room_alts: list = field(default_factory=list)
+    room_user: bool = False          # the user chose this label
+    room_group: int = 0
+    score: float = 0.5
+    appeal: float = 0.5
+    similar: list[int] = field(default_factory=list)
+    auto_excluded: bool = False      # a better photo of the same shot exists
+    dup_of: int | None = None
+    user_state: str | None = None    # 'keep' (restored) | 'exclude' (removed by the user)
 
     @property
     def name(self) -> str:
         return self.parts[-1]
+
+    @property
+    def excluded(self) -> bool:
+        return self.user_state == "exclude" or (self.user_state != "keep" and self.auto_excluded)
+
+    @property
+    def included(self) -> bool:
+        return self.status != "failed" and not self.excluded
+
+
+@dataclass
+class PSet:
+    id: int
+    key: str                         # folder path including the root, e.g. "Al Khuzama/1"
+    order: list[int] = field(default_factory=list)       # included photo ids, gallery order, first = main photo
+    manual: bool = False             # the user arranged it by hand
+    organized: bool = False
+
+    @property
+    def label(self) -> str:
+        parts = self.key.split("/")
+        return "/".join(parts[1:]) if len(parts) > 1 else parts[0]
 
 
 @dataclass
@@ -66,17 +113,23 @@ class Job:
     created: float
     last_activity: float
     items: dict[int, Item] = field(default_factory=dict)
+    sets: dict[int, PSet] = field(default_factory=dict)
+    set_by_key: dict[str, int] = field(default_factory=dict)
     taken: set[str] = field(default_factory=set)
     next_id: int = 1
+    next_set: int = 1
     rev: int = 1
     ignored: dict[str, int] = field(default_factory=dict)
     bytes_total: int = 0
     edit_version: int = 0
-    zip_version: int = -1
+    arr_version: int = 0
+    zip_key: tuple | None = None
     downloaded_at: float | None = None
     failed_at: float | None = None
     purged: bool = False
     deleting: bool = False
+    organizing: bool = False
+    ml: bool | None = None           # was the room model available for the last organisation?
     lock: threading.RLock = field(default_factory=threading.RLock)
     zip_lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -111,6 +164,10 @@ def _rm(p: str) -> None:
         os.remove(p)
     except OSError:
         pass
+
+
+def natural_key(s: str):
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
 
 
 class JobStore:
@@ -200,8 +257,15 @@ class JobStore:
             parts = ingest.with_root(parts)
             item_id = job.next_id
             job.next_id += 1
+            group = ingest.group_of(parts)
+            sid = job.set_by_key.get(group)
+            if sid is None:
+                sid = job.next_set
+                job.next_set += 1
+                job.set_by_key[group] = sid
+                job.sets[sid] = PSet(id=sid, key=group)
             out = ingest.dedupe(ingest.out_rel_for(parts, ingest.out_ext_for(parts[-1])), job.taken)
-            item = Item(id=item_id, parts=parts, size=size, group=ingest.group_of(parts), out_rel=out)
+            item = Item(id=item_id, parts=parts, size=size, group=group, out_rel=out, set_id=sid)
             os.replace(tmp_path, job.p_original(item_id))
             job.items[item_id] = item
             job.bytes_total += size
@@ -226,6 +290,143 @@ class JobStore:
             job.taken.discard(unicodedata.normalize("NFC", item.out_rel).lower())
             item.out_rel = ingest.dedupe(ingest.out_rel_for(item.parts, out_ext), job.taken)
 
+    # ------------------------------------------------------------ organisation
+    def sets_needing_organization(self, job: Job) -> list[PSet]:
+        with job.lock:
+            ids = {i.set_id for i in job.items.values() if not i.organized and i.status in ("ready", "queued", "done")}
+            return [job.sets[s] for s in sorted(ids)]
+
+    def organizer_payload(self, job: Job, pset: PSet) -> dict:
+        with job.lock:
+            items = [{"id": i.id, "preview": os.path.join(job.p_preview, f"{i.id}_before.jpg"),
+                      "analysis": i.analysis or {}, "pixels": i.width * i.height}
+                     for i in job.items.values()
+                     if i.set_id == pset.id and i.status in ("ready", "queued", "done") and i.analysis]
+        return {"id": pset.id, "items": items}
+
+    def apply_organization(self, job: Job, pset: PSet, res: dict | None) -> None:
+        """Store the organizer's suggestions.  Anything the user already decided is left alone."""
+        with job.lock:
+            members = [i for i in job.items.values() if i.set_id == pset.id and i.status != "failed"]
+            if res is None:     # organizer unavailable: keep everything, natural file order
+                for it in members:
+                    it.organized = True
+                    it.auto_excluded = False
+                    it.dup_of = None
+                if not pset.manual:
+                    pset.order = [i.id for i in sorted((m for m in members if m.included), key=lambda i: natural_key(i.name))]
+                self._fix_order(job, pset)
+                pset.organized = True
+                job.arr_version += 1
+                job.bump()
+                return
+            ex = {int(k): v for k, v in res["excluded"].items()}
+            scores = {int(k): v for k, v in res["scores"].items()}
+            rooms = {int(k): v for k, v in res["rooms"].items()}
+            groups = {int(k): v for k, v in res["room_group"].items()}
+            similar = {int(k): v for k, v in res["similar"].items()}
+            for it in members:
+                it.organized = True
+                if it.id not in scores:
+                    continue
+                it.score = float(scores[it.id])
+                r = rooms[it.id]
+                it.appeal = float(r.get("appeal", it.appeal))
+                if not it.room_user:
+                    it.room, it.room_conf, it.room_sure, it.room_alts = r["label"], r["conf"], r["sure"], r["alts"]
+                it.room_group = int(groups.get(it.id, 0))
+                it.similar = list(similar.get(it.id, []))
+                if it.id in ex:
+                    it.auto_excluded, it.dup_of = True, ex[it.id]["dup_of"]
+                else:
+                    it.auto_excluded, it.dup_of = False, None
+            if pset.manual:
+                self._fix_order(job, pset, preferred=res["order"])
+            else:
+                pset.order = [i for i in res["order"] if i in job.items and job.items[i].included]
+                self._fix_order(job, pset)
+            pset.organized = True
+            job.arr_version += 1
+            job.bump()
+
+    def _fix_order(self, job: Job, pset: PSet, preferred: list[int] | None = None) -> None:
+        """Make `pset.order` contain exactly the included photos: drop excluded ones, add missing ones sensibly."""
+        inc = [i for i in job.items.values() if i.set_id == pset.id and i.included]
+        inc_ids = {i.id for i in inc}
+        order = [i for i in pset.order if i in inc_ids]
+        have = set(order)
+        pref_rank = {i: n for n, i in enumerate(preferred or [])}
+        for it in sorted((i for i in inc if i.id not in have), key=lambda i: (pref_rank.get(i.id, 10 ** 6), natural_key(i.name))):
+            if it.dup_of in order and it.user_state == "keep":
+                order.insert(order.index(it.dup_of) + 1, it.id)      # a restored duplicate goes right after its twin
+            else:
+                order.append(it.id)
+            have.add(it.id)
+        pset.order = order
+
+    def set_exclude(self, job: Job, item: Item) -> list[Item]:
+        """Remove a photo from the final gallery.  Returns photos promoted so that its angle is still covered."""
+        promoted: list[Item] = []
+        with job.lock:
+            item.user_state = "exclude"
+            dups = [i for i in job.items.values()
+                    if i.dup_of == item.id and i.auto_excluded and i.user_state != "exclude"]
+            if dups:
+                best = max(dups, key=lambda i: i.score)
+                best.auto_excluded, best.dup_of, best.user_state = False, None, "keep"
+                for o in dups:
+                    if o is not best:
+                        o.dup_of = best.id
+                promoted.append(best)
+            self._fix_order(job, job.sets[item.set_id])
+            job.arr_version += 1
+            job.bump()
+        return promoted
+
+    def set_restore(self, job: Job, item: Item) -> None:
+        with job.lock:
+            item.user_state = "keep"
+            self._fix_order(job, job.sets[item.set_id])
+            job.arr_version += 1
+            job.bump()
+
+    def set_order(self, job: Job, pset: PSet, order: list[int]) -> None:
+        with job.lock:
+            if sorted(order) != sorted(pset.order):
+                raise JobError(409, "order_mismatch", "The photo list changed. Refresh and try again.")
+            pset.order = list(order)
+            pset.manual = True
+            job.arr_version += 1
+            job.bump()
+
+    def make_main(self, job: Job, item: Item) -> None:
+        with job.lock:
+            pset = job.sets[item.set_id]
+            if item.id not in pset.order:
+                raise JobError(409, "not_in_gallery", "Restore this photo first.")
+            pset.order = [item.id] + [i for i in pset.order if i != item.id]
+            pset.manual = True
+            job.arr_version += 1
+            job.bump()
+
+    def set_room(self, job: Job, item: Item, room: str) -> None:
+        if room not in CLASSES:
+            raise JobError(400, "bad_room", "Unknown room type")
+        with job.lock:
+            item.room, item.room_user, item.room_sure, item.room_conf = room, True, True, 1.0
+            job.bump()
+
+    def reset_order(self, job: Job, pset: PSet) -> None:
+        """Suggested order again (reflects any room labels the user corrected)."""
+        with job.lock:
+            inc = [i for i in job.items.values() if i.set_id == pset.id and i.included]
+            pset.order = ordering.simple_order([
+                {"id": i.id, "label": i.room or "other", "sure": i.room_sure, "score": i.score,
+                 "appeal": i.appeal, "group": i.room_group} for i in inc])
+            pset.manual = False
+            job.arr_version += 1
+            job.bump()
+
     # ------------------------------------------------------------ public view
     def counts(self, job: Job) -> dict[str, int]:
         c = {"total": 0, "uploaded": 0, "analyzing": 0, "ready": 0, "queued": 0, "processing": 0, "done": 0, "failed": 0}
@@ -245,32 +446,51 @@ class JobStore:
     def public(self, job: Job) -> dict:
         with job.lock:
             counts = self.counts(job)
+            to_start = sum(1 for i in job.items.values() if i.status in ("uploaded", "analyzing", "ready") and not i.excluded)
+            counts["to_start"] = to_start
+            counts["excluded"] = sum(1 for i in job.items.values() if i.excluded and i.status != "failed")
+            counts["final"] = sum(1 for i in job.items.values() if i.included)
+            pos: dict[int, int] = {}
+            for s in job.sets.values():
+                for n, iid in enumerate(s.order, 1):
+                    pos[iid] = n
             items = []
-            for it in sorted(job.items.values(), key=lambda i: (i.group.lower(), i.name.lower(), i.id)):
+            for it in sorted(job.items.values(), key=lambda i: (natural_key(i.group), pos.get(i.id, 10 ** 6), natural_key(i.name), i.id)):
                 items.append({
-                    "id": it.id, "name": it.name, "dir": it.group, "status": it.status,
+                    "id": it.id, "name": it.name, "dir": it.group, "set": it.set_id, "status": it.status,
                     "mode": it.mode, "w": it.width, "h": it.height, "err": it.error,
                     "v": it.version, "bytes": it.out_bytes, "src_bytes": it.size,
                     "out": it.out_rel, "sec": it.seconds,
+                    "pos": pos.get(it.id, 0), "ex": it.excluded and it.status != "failed",
+                    "ex_why": ("user" if it.user_state == "exclude" else "dup") if it.excluded else None,
+                    "dup_of": it.dup_of if it.excluded and it.user_state != "exclude" else None,
+                    "restored": it.user_state == "keep",
+                    "room": it.room, "room_conf": round(it.room_conf, 2), "room_sure": it.room_sure,
+                    "room_alts": it.room_alts, "room_user": it.room_user,
+                    "similar": it.similar, "org": it.organized,
                 })
-            busy = counts["uploaded"] + counts["analyzing"] + counts["queued"] + counts["processing"]
+            sets = [{"id": s.id, "key": s.key, "label": s.label, "organized": s.organized, "manual": s.manual,
+                     "order": list(s.order)} for s in sorted(job.sets.values(), key=lambda s: natural_key(s.key))]
+            working = counts["queued"] + counts["processing"]
             if counts["total"] == 0:
                 phase = "empty"
-            elif busy and (counts["queued"] or counts["processing"]):
+            elif job.organizing and not working:
+                phase = "organizing"
+            elif working or job.organizing:
                 phase = "processing"
             elif counts["uploaded"] or counts["analyzing"]:
                 phase = "preparing"
-            elif counts["ready"] and not counts["done"]:
-                phase = "ready"
-            elif counts["ready"]:
-                phase = "partial"
+            elif to_start:
+                phase = "partial" if counts["done"] else "ready"
             else:
                 phase = "done" if counts["done"] else "failed"
+            roots = sorted({i.parts[0] for i in job.items.values()}, key=natural_key)
             return {
                 "id": job.id, "rev": job.rev, "mode": job.mode, "phase": phase, "counts": counts,
                 "ignored": dict(job.ignored), "ignored_total": sum(job.ignored.values()),
                 "expires_in": self.expires_in(job), "downloaded": bool(job.downloaded_at),
-                "purged": job.purged, "created": int(job.created), "items": items,
+                "purged": job.purged, "created": int(job.created), "items": items, "sets": sets,
+                "roots": roots, "zip_name": self.zip_name(job), "ml": job.ml, "rooms": CLASSES,
             }
 
     def summary(self, job: Job) -> dict:
@@ -278,33 +498,93 @@ class JobStore:
         return {"id": job.id, "created": int(job.created), "mode": job.mode, "counts": counts,
                 "expires_in": self.expires_in(job), "purged": job.purged}
 
-    # ------------------------------------------------------------ zip
-    def build_zip(self, job: Job) -> str:
-        """Create (or reuse) the organised result ZIP.  Photos are already compressed, so entries are stored."""
+    # ------------------------------------------------------------ zip + log
+    @staticmethod
+    def zip_name(job: Job) -> str:
+        roots = {i.parts[0] for i in job.items.values()}
+        return (next(iter(roots)) if len(roots) == 1 else "Roomlit export") + ".zip"
+
+    @staticmethod
+    def final_name(item: Item, n: int, digits: int, numbering: bool) -> str:
+        base = posixpath.basename(item.out_rel)
+        return f"{n:0{digits}d} - {base}" if numbering else base
+
+    def plan_zip(self, job: Job, numbering: bool) -> tuple[list[tuple[str, Item]], list[dict]]:
+        """(zip entries in gallery order, log rows).  Only finished, included photos are delivered."""
+        entries: list[tuple[str, Item]] = []
+        rows: list[dict] = []
+        with job.lock:
+            for pset in sorted(job.sets.values(), key=lambda s: natural_key(s.key)):
+                deliver = [job.items[i] for i in pset.order
+                           if i in job.items and job.items[i].status == "done" and os.path.exists(job.p_edited(i))]
+                digits = max(2, len(str(len(deliver))))
+                final: dict[int, tuple[int, str]] = {}
+                for n, it in enumerate(deliver, 1):
+                    arc = posixpath.join(posixpath.dirname(it.out_rel), self.final_name(it, n, digits, numbering))
+                    entries.append((arc, it))
+                    final[it.id] = (n, arc)
+                for it in sorted((i for i in job.items.values() if i.set_id == pset.id),
+                                 key=lambda i: (final.get(i.id, (10 ** 6,))[0], natural_key(i.name))):
+                    delivered = it.id in final
+                    if it.status == "failed":
+                        status, why = "failed", it.error or ""
+                    elif it.excluded:
+                        status = "excluded"
+                        keeper = job.items.get(it.dup_of) if it.dup_of else None
+                        why = ("Removed by user" if it.user_state == "exclude" else
+                               f"Same shot as {keeper.name} (kept the better photo)" if keeper else "Duplicate")
+                    elif delivered:
+                        status, why = "included", ""
+                    else:
+                        status, why = "not delivered", "not processed yet"
+                    rows.append({
+                        "apartment_folder": pset.key, "final_position": final[it.id][0] if delivered else "",
+                        "final_file": final[it.id][1].rsplit("/", 1)[-1] if delivered else "",
+                        "original_file": it.name, "original_path": "/".join(it.parts),
+                        "room_type": it.room or "", "room_confidence": f"{it.room_conf:.2f}" if it.room else "",
+                        "room_set_by_user": "yes" if it.room_user else "no",
+                        "main_photo": "yes" if delivered and final[it.id][0] == 1 else "",
+                        "status": status, "reason": why,
+                        "similar_to": "; ".join(job.items[s].name for s in it.similar if s in job.items),
+                        "edit_mode": it.mode or "",
+                    })
+        return entries, rows
+
+    @staticmethod
+    def log_csv(rows: list[dict]) -> bytes:
+        cols = ["apartment_folder", "final_position", "final_file", "original_file", "original_path", "room_type",
+                "room_confidence", "room_set_by_user", "main_photo", "status", "reason", "similar_to", "edit_mode"]
+        buf = io.StringIO()
+        w = csv.DictWriter(buf, fieldnames=cols)
+        w.writeheader()
+        w.writerows(rows)
+        return b"\xef\xbb\xbf" + buf.getvalue().encode("utf-8")       # BOM: Excel shows Arabic names correctly
+
+    def log_for(self, job: Job, numbering: bool = True) -> bytes:
+        return self.log_csv(self.plan_zip(job, numbering)[1])
+
+    def build_zip(self, job: Job, numbering: bool = True) -> str:
+        """Create (or reuse) the organised result ZIP: original root + sub-folders, photos in gallery order."""
         with job.zip_lock:
-            with job.lock:
-                version = job.edit_version
-                done = [it for it in job.items.values() if it.status == "done"]
-            if not done:
-                raise JobError(409, "nothing_to_download", "There are no edited photos to download yet.")
-            if job.zip_version == version and os.path.exists(job.p_zip):
+            key = (job.edit_version, job.arr_version, numbering)
+            if job.zip_key == key and os.path.exists(job.p_zip):
                 return job.p_zip
+            entries, rows = self.plan_zip(job, numbering)
+            if not entries:
+                raise JobError(409, "nothing_to_download", "There are no edited photos to download yet.")
+            roots = sorted({i.parts[0] for i in job.items.values()}, key=natural_key)
+            log_arc = posixpath.join(roots[0], LOG_NAME) if len(roots) == 1 else LOG_NAME
             tmp = job.p_zip + ".part"
-            used: set[str] = set()
             with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
-                for it in sorted(done, key=lambda i: i.out_rel.lower()):
-                    src = job.p_edited(it.id)
-                    if not os.path.exists(src):
-                        continue
-                    arc = ingest.dedupe(it.out_rel, used)
-                    zf.write(src, arc)
+                for arc, it in entries:
+                    zf.write(job.p_edited(it.id), arc)
+                zf.writestr(log_arc, self.log_csv(rows))
             os.replace(tmp, job.p_zip)
-            job.zip_version = version
+            job.zip_key = key
             return job.p_zip
 
     # ------------------------------------------------------------ expiry
     def expired(self) -> list[Job]:
-        now = time.time()
         out = []
         for job in list(self.jobs.values()):
             if self.expires_in(job) <= 0 and not self._busy(job):
@@ -313,4 +593,4 @@ class JobStore:
 
     @staticmethod
     def _busy(job: Job) -> bool:
-        return any(i.status in ("queued", "processing") for i in job.items.values())
+        return job.organizing or any(i.status in ("queued", "processing") for i in job.items.values())

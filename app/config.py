@@ -18,6 +18,16 @@ def _bool(name: str, default: bool) -> bool:
     return default if v is None else v.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _model_dir() -> str:
+    """MODEL_DIR, else ./models next to the app when it is writable, else a temp folder."""
+    if os.environ.get("MODEL_DIR"):
+        return os.environ["MODEL_DIR"]
+    proj = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
+    if os.path.isdir(proj) or os.access(os.path.dirname(proj), os.W_OK):
+        return proj
+    return os.path.join(os.environ.get("DATA_DIR", "/tmp/roomlit"), "models")
+
+
 @dataclass(frozen=True)
 class Settings:
     env: str = field(default_factory=lambda: os.environ.get("APP_ENV", "production"))
@@ -46,6 +56,8 @@ class Settings:
     cv_threads: int = field(default_factory=lambda: _int("CV_THREADS", 1))
     worker_recycle: int = field(default_factory=lambda: _int("WORKER_RECYCLE", 12))
     task_timeout_s: int = field(default_factory=lambda: _int("TASK_TIMEOUT_S", 420))
+    organize_timeout_s: int = field(default_factory=lambda: _int("ORGANIZE_TIMEOUT_S", 900))
+    model_dir: str = field(default_factory=lambda: _model_dir())
 
     @property
     def dev(self) -> bool:

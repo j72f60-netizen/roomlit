@@ -22,6 +22,29 @@ SETS = [
     ("Apartments/Modern", "modern_living.jpg", "Modern living room with stylish furniture and a view of the outdoors in a cozy apartment setting.jpg", 3000, "CC BY 2.0"),
     ("Apartments/Tianhe", "tianhe_bed.jpg", "Bed at Tianhe Hotel in Shenzhen.jpg", 3000, "CC0"),
 ]
+
+# --- extra categories for room-type tests (classes/<label>/...)
+SETS += [
+    ("Classes/kitchen", "k1.jpg", "Modern kitchen and dining area in a simple home setting showing light colors and minimal decor.jpg", 2200, "CC BY 2.0"),
+    ("Classes/kitchen", "k2.jpg", "This cozy kitchen showcases modern design elements.jpg", 2200, "CC BY 2.0"),
+    ("Classes/kitchen", "k3.jpg", "Modern kitchen interior featuring wooden shelving and organized dishware in a cozy setting.jpg", 2200, "CC BY 2.0"),
+    ("Classes/bathroom", "b1.jpg", "Bathroom, Interior of apartment in Brisbane, 2025, 07.jpg", 2200, "CC BY-SA 4.0"),
+    ("Classes/bathroom", "b2.jpg", "Bathroom, Interior of apartment in Brisbane, 2025, 08.jpg", 2200, "CC BY-SA 4.0"),
+    ("Classes/bathroom", "b3.jpg", "Coaster Bathroom Interior.jpg", 2200, "CC BY 4.0"),
+    ("Classes/bathroom", "b4.jpg", "Red modern bathroom interior. (51528276166).jpg", 2200, "CC BY 2.0"),
+    ("Classes/dining", "d1.jpg", "Modern dining area with stylish table and chairs in cozy interior design.jpg", 2200, "CC BY 2.0"),
+    ("Classes/dining", "d2.jpg", "Dining table in Standen House 2024-10-08.jpg", 2200, "CC0"),
+    ("Classes/exterior", "e1.jpg", "Brown apartment building (Unsplash).jpg", 2200, "CC0"),
+    ("Classes/exterior", "e2.jpg", "Curved modern apartment building with glass stairwell tower.jpg", 2000, "CC0"),
+    ("Classes/view", "v1.jpg", "Balcony Pool with NYC skyline, August 2013.jpg", 2200, "CC BY 2.0"),
+    ("Classes/view", "v2.jpg", "Eastern Beijing skyline from Forbidden City.jpg", 2200, "CC BY-SA 3.0"),
+    ("Classes/parking", "p1.jpg", "Hsinchu Mackay Underground parking Garage 2024-08-26.jpg", 2200, "CC BY-SA 4.0"),
+    ("Classes/parking", "p2.jpg", "Allee Shopping Center, underground parking, Lágymányos, 2016 Újbuda.jpg", 2200, "CC BY-SA 3.0"),
+    ("Classes/entrance", "n1.jpg", "Hallway at the entrance of an apartment building on Rue de Berri in Paris.jpg", 2200, "CC BY-SA 4.0"),
+    ("Classes/amenity", "a1.jpg", "Indoor swimming pool at Hotel Mercure Krynica Zdroj Resort & Spa, Poland, 2023, 03.jpg", 2200, "CC BY-SA 4.0"),
+    ("Classes/living", "l1.jpg", "Modern luxury living room with kitchen interior.jpg", 2200, "CC BY 2.0"),
+]
+
 os.makedirs(ROOT, exist_ok=True)
 lic = []
 for folder, name, title, width, licence in SETS:

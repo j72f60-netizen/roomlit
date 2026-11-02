@@ -39,3 +39,43 @@ def save_jpeg(path, bgr, orientation=None, icc=False, quality=95):
 
 def hsv(bgr_region):
     return cv2.cvtColor(bgr_region.astype(np.float32) / 255.0, cv2.COLOR_BGR2HSV)
+
+
+def layout(k: int, w=640, h=480):
+    """A distinct, textured, deterministic 'room' per k (different k never match; same k always does)."""
+    rng = np.random.default_rng(1000 + k)
+    img = np.full((h, w, 3), rng.integers(90, 170, 3), np.uint8)
+    for _ in range(40):
+        x0, y0 = int(rng.integers(0, w - 40)), int(rng.integers(0, h - 40))
+        x1, y1 = x0 + int(rng.integers(25, w // 3)), y0 + int(rng.integers(25, h // 3))
+        col = tuple(int(c) for c in rng.integers(20, 235, 3))
+        cv2.rectangle(img, (x0, y0), (x1, y1), col, -1 if rng.random() < 0.7 else 3)
+    for _ in range(25):
+        cv2.circle(img, (int(rng.integers(0, w)), int(rng.integers(0, h))), int(rng.integers(6, 40)), tuple(int(c) for c in rng.integers(0, 255, 3)), -1)
+    for _ in range(40):
+        cv2.line(img, (int(rng.integers(0, w)), int(rng.integers(0, h))), (int(rng.integers(0, w)), int(rng.integers(0, h))), tuple(int(c) for c in rng.integers(0, 255, 3)), 2)
+    tex = rng.normal(0, 10, img.shape).astype(np.float32)
+    return np.clip(cv2.GaussianBlur(img.astype(np.float32), (0, 0), 0.8) + tex, 0, 255).astype(np.uint8)
+
+
+def relit(img, gamma=1.6, gain=0.8, wb=(1.1, 1.0, 0.9)):
+    x = (img.astype(np.float32) / 255.0) ** gamma * gain * np.array(wb, np.float32)
+    return (np.clip(x, 0, 1) * 255).astype(np.uint8)
+
+
+def shifted(img, dx, dy):
+    M = np.float32([[1, 0, dx], [0, 1, dy]])
+    return cv2.warpAffine(img, M, (img.shape[1], img.shape[0]), borderMode=cv2.BORDER_REFLECT)
+
+
+def resized_q(img, scale=0.5, q=60):
+    small = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    return cv2.imdecode(cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, q])[1], 1)
+
+
+def other_angle(img):
+    """A genuinely different viewpoint of the same content: strong perspective change + large translation."""
+    h, w = img.shape[:2]
+    src = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
+    dst = np.float32([[w * .18, h * .08], [w * .98, 0], [w * .85, h * .95], [w * .05, h * .78]])
+    return cv2.warpPerspective(img, cv2.getPerspectiveTransform(src, dst), (w, h), borderMode=cv2.BORDER_REFLECT)

@@ -26,17 +26,30 @@ Never: crop, rotate, resize, add/remove/replace objects, recolour furniture, hid
 (incl. orientation) and the ICC profile are carried over; JPEG quality 94.
 
 Modes: **Natural** (subtle), **Premium Airbnb** (default), **Bright & Clean**.
-Photos in the **same folder** are treated as one apartment: they share a brightness target and a
-shared colour-cast fallback so they look consistent.
+Photos in the **same folder** are one apartment: they share a brightness target and a colour-cast fallback so they look consistent.
 
-## Folder mapping
+## Smart organisation (after editing, before download)
 
-```
-Photos Al Khuzama/1/a.jpg      ->  Photos Al Khuzama - Edited/1/Edited - Airbnb/a.jpg
-Photos Al Khuzama/02/b.jpg     ->  Photos Al Khuzama - Edited/02/Edited - Airbnb/b.jpg
-```
-Original names and folder hierarchy are kept; duplicate names get ` (2)`, ` (3)`; unsupported files are
-ignored (and counted). HEIC is delivered as JPG.
+Per **apartment** (= the folder that directly contains the photos; folders are never merged):
+
+* **Duplicates**: the same shot is recognised by geometry (ORB features + RANSAC), not by name, size or brightness:
+  copies, resized/recompressed versions, relit versions and tiny handheld shifts. The sharpest, best-exposed, highest
+  resolution copy is kept. Different angles of the same room are **never** duplicates. Borderline pairs are kept and
+  tagged "Similar". Excluded photos are shown in their own section and can be **restored** (a restored photo is edited
+  on the spot and placed next to its twin). Nothing is deleted before the job is deleted after download.
+* **Room type + order**: a small local model (OpenAI CLIP ViT-B/32, MIT licence, int8 ONNX, ~89 MB, runs on CPU; no paid
+  or external AI) suggests the room type with a confidence. Weak guesses are marked *unsure* and are editable.
+  Order: main photo -> living room -> bedrooms -> kitchen -> bathrooms -> dining / balcony / amenities -> views,
+  entrance, exterior, parking. Different angles of one room are spread out; rooms that do not exist are never invented.
+* **Control**: drag and drop (or the arrow buttons) to reorder, "Make main photo", Exclude / Restore, correct a room label,
+  "Suggested order" to start over. The header shows original / final / excluded counts.
+
+## Download
+
+`<original folder name>.zip` -> `<original folder name>/<same sub-folders>/NN - <original file name>.jpg` (the numbers
+keep the gallery order when you drag the files into Airbnb; switch them off to keep the exact original names) and
+`Roomlit log.csv` (original name, final name, position, room type, main photo, excluded + why). No "Edited" / "Airbnb"
+words are ever added to folder names. HEIC is delivered as JPG. Duplicate file names get ` (2)`, ` (3)`.
 
 ## Privacy and safety model
 
@@ -63,7 +76,7 @@ crashes or times out, only that photo fails.
 `APP_PASSWORD` (required) · `APP_USERNAME` (default `admin`) · `SESSION_SECRET` · `SESSION_HOURS`=12 ·
 `DATA_DIR`=/tmp/roomlit · `JOB_TTL_MINUTES`=120 · `DOWNLOADED_TTL_MINUTES`=30 · `FAILED_TTL_MINUTES`=10 ·
 `MAX_FILE_MB`=80 · `MAX_ZIP_MB`=1500 · `MAX_JOB_MB`=2000 · `MAX_FILES_PER_JOB`=400 · `MAX_JOBS`=6 ·
-`MAX_MEGAPIXELS`=40 · `MIN_FREE_DISK_MB`=300 · `CV_THREADS`=1 · `WORKER_RECYCLE`=12 · `TASK_TIMEOUT_S`=420
+`MAX_MEGAPIXELS`=40 · `MIN_FREE_DISK_MB`=300 · `CV_THREADS`=1 · `WORKER_RECYCLE`=12 · `TASK_TIMEOUT_S`=420 · `ORGANIZE_TIMEOUT_S`=900 · `MODEL_DIR`
 
 ## Run locally
 
@@ -76,7 +89,8 @@ APP_ENV=dev APP_PASSWORD=dev-password .venv/bin/python -m uvicorn app.main:app -
 
 ## Deploy (Render)
 
-`render.yaml` describes one web service (Starter, 1 instance — keep it at 1: job state is in memory).
+`render.yaml` describes one web service (Starter, 1 instance - keep it at 1: job state is in memory). The room model
+is downloaded (SHA-256 checked) in the background at first start if it is not already there.
 Set `APP_PASSWORD` in the dashboard. Health check: `/healthz`.
 
 ## Changing the product name

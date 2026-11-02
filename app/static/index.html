@@ -79,14 +79,17 @@
       <div class="card job-head">
         <div class="job-title">
           <h2 id="job-heading"></h2>
+          <p class="counts" id="job-counts"></p>
           <p class="muted small" id="job-sub"></p>
         </div>
         <div class="job-actions">
           <button class="btn primary" id="btn-start" type="button"></button>
-          <a class="btn primary hidden" id="btn-zip" href="#" data-i18n="download_all">Download all (ZIP)</a>
+          <a class="btn primary hidden" id="btn-zip" href="#"></a>
+          <a class="btn hidden" id="btn-log" href="#" data-i18n="dl_log">Download log</a>
           <button class="btn" id="btn-new" type="button" data-i18n="add_more">Add more photos</button>
           <button class="btn danger-o" id="btn-delete" type="button" data-i18n="delete_job">Delete job</button>
         </div>
+        <label class="check hidden" id="numbering-row"><input type="checkbox" id="numbering" checked><span data-i18n="numbering">Number files in gallery order (01 - name)</span></label>
         <div id="progress" class="progress hidden"><div class="bar"><i id="bar"></i></div><span id="progress-text" class="small"></span></div>
         <div id="upload-progress" class="progress hidden"><div class="bar"><i id="ubar"></i></div><span id="uprogress-text" class="small"></span></div>
         <div id="banner-dl" class="banner hidden">
@@ -100,7 +103,7 @@
           <button class="btn sm" id="btn-reedit-all" type="button" data-i18n="apply">Apply</button>
         </div>
       </div>
-      <div id="grid"></div>
+      <div id="sets"></div>
     </section>
   </main>
 
@@ -127,6 +130,8 @@
         <label class="inline"><span data-i18n="mode_label">Mode</span>
           <select id="m-mode"></select></label>
         <button class="btn" id="m-reedit" type="button" data-i18n="reedit">Re-edit this photo</button>
+        <button class="btn" id="m-main" type="button" data-i18n="make_main">Make main photo</button>
+        <button class="btn" id="m-excl" type="button" data-i18n="exclude">Exclude</button>
         <a class="btn primary" id="m-dl" href="#" data-i18n="download">Download</a>
       </div>
     </div>

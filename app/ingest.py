@@ -19,8 +19,6 @@ from typing import Callable, Iterable
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".heic", ".heif"}
 IGNORED_NAMES = {".ds_store", "thumbs.db", "desktop.ini"}
 LOOSE_ROOT = "Photos"
-EDITED_SUBFOLDER = "Edited - Airbnb"
-EDITED_SUFFIX = " - Edited"
 MAX_DEPTH = 16
 MAX_NAME = 180
 
@@ -36,7 +34,7 @@ class ZipRejected(ValueError):
 
 
 def clean_component(c: str) -> str:
-    c = unicodedata.normalize("NFC", _CTRL.sub("", c)).strip()
+    c = unicodedata.normalize("NFC", _CTRL.sub("", c))          # names are kept exactly (no trimming)
     if len(c.encode("utf-8")) > MAX_NAME:
         stem, ext = os.path.splitext(c)
         while len((stem + ext).encode("utf-8")) > MAX_NAME and len(stem) > 1:
@@ -57,7 +55,7 @@ def split_rel(raw: str) -> list[str]:
         if c == "..":
             raise UnsafePath("parent directory reference")
         c = clean_component(c)
-        if not c or c in (".", ".."):
+        if not c.strip() or c in (".", ".."):
             raise UnsafePath("empty component")
         parts.append(c)
     if not parts:
@@ -107,11 +105,11 @@ def out_ext_for(name: str) -> str | None:
 
 
 def out_rel_for(parts: list[str], ext: str | None = None) -> str:
-    """Photos Al Khuzama/1/a.jpg -> 'Photos Al Khuzama - Edited/1/Edited - Airbnb/a.jpg'."""
-    root, *mid, name = parts
+    """Where the edited photo lives in the ZIP: exactly where it was uploaded (extension changes only if forced)."""
+    *dirs, name = parts
     if ext is not None:
         name = os.path.splitext(name)[0] + ext
-    return posixpath.join(root + EDITED_SUFFIX, *mid, EDITED_SUBFOLDER, name)
+    return posixpath.join(*dirs, name)
 
 
 def dedupe(rel: str, taken: set[str]) -> str:

@@ -1,8 +1,10 @@
 """Controlled, sequential processing.
 
-One worker process handles one photo at a time (low, predictable memory).  The
-dispatcher feeds it from a FIFO queue, so analysis tasks queued at upload always
-run before the processing tasks queued by "Start".
+One worker process handles one photo at a time (low, predictable memory).  The dispatcher feeds it from a FIFO
+queue, so analysis tasks queued at upload always run before the "organize" and processing tasks queued by Start.
+
+Organising (duplicates, room types, order) loads an 89 MB model, so it runs in a *second*, short-lived process
+and the image worker is stopped meanwhile: only one heavy process exists at any moment (512 MB server).
 """
 from __future__ import annotations
 
@@ -23,9 +25,14 @@ class WorkerError(Exception):
     """Worker-level failure with a message that is safe to show to the user."""
 
 
+class ImageProblem(Exception):
+    """The photo itself is the problem (corrupt, unsupported, too large)."""
+
+
 class WorkerProc:
-    def __init__(self, cfg: Settings):
+    def __init__(self, cfg: Settings, kind: str = "image"):
         self.cfg = cfg
+        self.kind = kind
         self._ctx = mp.get_context("spawn")
         self._proc = None
         self._conn = None
@@ -36,13 +43,18 @@ class WorkerProc:
     def _start(self) -> None:
         self.close()
         parent, child = self._ctx.Pipe()
-        from .worker_main import main
-        proc = self._ctx.Process(target=main, args=(child, self.cfg.max_pixels, self.cfg.cv_threads), daemon=True)
+        if self.kind == "ml":
+            from .worker_ml_main import main
+            args = (child, self.cfg.model_dir, self.cfg.cv_threads)
+        else:
+            from .worker_main import main
+            args = (child, self.cfg.max_pixels, self.cfg.cv_threads)
+        proc = self._ctx.Process(target=main, args=args, daemon=True)
         proc.start()
         child.close()
         if not parent.poll(60):
             proc.kill()
-            raise WorkerError("The image worker failed to start")
+            raise WorkerError("The worker failed to start")
         parent.recv()
         self._proc, self._conn, self._tasks, self.pid = proc, parent, 0, proc.pid
 
@@ -79,6 +91,7 @@ class WorkerProc:
         try:
             self._conn.send((fn, args))
             if not self._conn.poll(timeout):
+                self._sample_peak()
                 self.close()
                 raise WorkerError("This photo took too long to process and was skipped")
             kind, payload = self._conn.recv()
@@ -94,26 +107,26 @@ class WorkerProc:
         raise WorkerError("An unexpected error occurred while processing this photo")
 
 
-class ImageProblem(Exception):
-    """The photo itself is the problem (corrupt, unsupported, too large)."""
-
-
 class Dispatcher:
     def __init__(self, cfg: Settings, store: JobStore):
         self.cfg = cfg
         self.store = store
         self.queue: asyncio.Queue = asyncio.Queue()
         self.worker = WorkerProc(cfg)
+        self.ml = WorkerProc(cfg, "ml")
         self._task: asyncio.Task | None = None
         self.busy = False
 
     def start(self) -> None:
+        self.queue = asyncio.Queue()          # bound to the running event loop (matters if the app is started twice)
+        self.busy = False
         self._task = asyncio.create_task(self._run(), name="dispatcher")
 
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()
         await asyncio.to_thread(self.worker.close)
+        await asyncio.to_thread(self.ml.close)
 
     @property
     def pending(self) -> int:
@@ -139,25 +152,22 @@ class Dispatcher:
             try:
                 if job.deleting:
                     continue
+                if kind == "organize":
+                    await self._organize(job, mode)
+                    continue
                 item = job.items.get(item_id)
                 if item is None:
                     continue
                 if kind == "analyze":
                     await self._analyze(job, item)
-                elif kind == "chain":
-                    # "Start" was pressed while this photo was still being measured; its analysis ran just before
-                    if item.status == "ready":
-                        with job.lock:
-                            item.status = "queued"
-                            item.mode = mode
-                            job.bump()
-                        await self._process(job, item, mode)
                 else:
                     await self._process(job, item, mode)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 log.exception("dispatcher error")
+                if kind == "organize":
+                    job.organizing = False
             finally:
                 self.busy = False
                 self.queue.task_done()
@@ -196,6 +206,37 @@ class Dispatcher:
             item.status = "ready"
             job.bump()
 
+    async def _organize(self, job: Job, mode: str) -> None:
+        """Duplicates, room types and gallery order for every apartment folder that has new photos."""
+        t0 = time.time()
+        sets = self.store.sets_needing_organization(job)
+        results: dict | None = None
+        if sets:
+            payload = [self.store.organizer_payload(job, s) for s in sets]
+            try:
+                await asyncio.to_thread(self.worker.close)          # never two heavy processes at once
+                results = await asyncio.to_thread(self.ml.call, "organize", (payload,), self.cfg.organize_timeout_s)
+                job.ml = bool(results.get("ml"))
+            except (ImageProblem, WorkerError) as e:
+                log.warning("organizer failed (%s); keeping every photo in upload order", str(e)[:80])
+                results = None
+                job.ml = False
+            finally:
+                await asyncio.to_thread(self.ml.close)
+            for s in sets:
+                self.store.apply_organization(job, s, (results or {}).get("sets", {}).get(s.id) if results else None)
+            log.info("job %s organised %d folder(s) in %.1fs (room model: %s)", job.id[:6], len(sets), time.time() - t0, job.ml)
+        # edit the kept photos, main photo first
+        queued: list[Item] = []
+        with job.lock:
+            for s in sorted(job.sets.values(), key=lambda s: s.id):
+                ordered = [job.items[i] for i in s.order if i in job.items]
+                queued += [i for i in ordered if i.status == "ready" and i.included]
+            job.organizing = False
+            job.bump()
+        for it in queued:
+            self.enqueue_process(job, it, mode)
+
     async def _process(self, job: Job, item: Item, mode: str) -> None:
         if item.status != "queued" or not os.path.exists(job.p_original(item.id)):
             return
@@ -226,7 +267,6 @@ class Dispatcher:
             item.error = None
             job.edit_version += 1
             job.downloaded_at = None
-            job.zip_version = -1
             job.bump()
         log.info("job %s item %s done in %.1fs (%s)", job.id[:6], item.id, res["seconds"], mode)
 
@@ -234,27 +274,27 @@ class Dispatcher:
         with job.lock:
             item.status = "failed"
             item.error = message
+            if item.set_id in job.sets:
+                self.store._fix_order(job, job.sets[item.set_id])
+            job.arr_version += 1
             job.bump()
         self.store.remove_item_files(job, item, original=drop_original)
         log.info("job %s item %s failed: %s", job.id[:6], item.id, message[:80])
 
     # -------------------------------------------------------------- user actions
     def start_job(self, job: Job, mode: str) -> int:
+        """Organise (duplicates / rooms / order) and then edit every new photo that was kept."""
         mode = mode if mode in PRESETS else DEFAULT_MODE
-        n = 0
         with job.lock:
             job.mode = mode
-            todo = [i for i in job.items.values() if i.status in ("uploaded", "analyzing", "ready")]
-        for it in sorted(todo, key=lambda i: i.id):
-            if it.status == "ready":
-                self.enqueue_process(job, it, mode)
-            else:
-                # analysis task is already ahead in the FIFO queue; chain the processing behind it
-                with job.lock:
-                    it.mode = mode
-                self.queue.put_nowait(("chain", job, it.id, mode))
-            n += 1
-        return n
+            todo = [i for i in job.items.values() if i.status in ("uploaded", "analyzing", "ready") and not i.excluded]
+            if not todo or job.organizing:
+                return 0 if not todo else len(todo)
+            job.organizing = True
+            job.bump()
+        # analysis tasks of these photos are already ahead in the FIFO queue, so they finish before this runs
+        self.queue.put_nowait(("organize", job, None, mode))
+        return len(todo)
 
     def reprocess(self, job: Job, item: Item, mode: str) -> None:
         self.enqueue_process(job, item, mode if mode in PRESETS else DEFAULT_MODE)

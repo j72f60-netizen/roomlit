@@ -4,3 +4,4 @@ httpx
 scikit-image
 certifi
 psutil
+tokenizers

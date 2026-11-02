@@ -14,7 +14,9 @@ from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
-from . import config, ingest
+import threading
+
+from . import config, ingest, modelfetch
 from .engine.presets import DEFAULT_MODE, PRESETS
 from .runner import Dispatcher
 from .security import COOKIE, Auth, SecurityMiddleware, client_ip
@@ -43,6 +45,8 @@ async def _janitor() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not modelfetch.present(cfg.model_dir):            # fetch the room model in the background; editing never waits for it
+        threading.Thread(target=modelfetch.fetch, args=(cfg.model_dir,), daemon=True, name="model-fetch").start()
     dispatcher.start()
     jan = asyncio.create_task(_janitor())
     log.info("started: ttl=%dmin max_file=%dMB max_job=%dMB max_files=%d", cfg.job_ttl_minutes,
@@ -116,6 +120,7 @@ async def get_config(user: str = Depends(current_user)):
         "exts": sorted(ingest.IMAGE_EXTS), "max_file_mb": cfg.max_file_mb, "max_zip_mb": cfg.max_zip_mb,
         "max_job_mb": cfg.max_job_mb, "max_files": cfg.max_files_per_job, "max_megapixels": cfg.max_megapixels,
         "job_ttl_minutes": cfg.job_ttl_minutes, "downloaded_ttl_minutes": cfg.downloaded_ttl_minutes,
+        "room_model": modelfetch.present(cfg.model_dir),
     }
 
 
@@ -149,6 +154,7 @@ async def diag(user: str = Depends(current_user)):
         "disk_free_mb": round(du.free / 1e6), "queue": dispatcher.pending,
         "web_rss_mb": _rss("self"), "web_peak_rss_mb": _rss("self", "VmHWM"),
         "worker_rss_mb": _rss(wpid) if wpid else None, "worker_peak_mb": dispatcher.worker.peak_mb,
+        "organizer_peak_mb": dispatcher.ml.peak_mb,
         "uptime_s": int(time.time() - START),
     }
 
@@ -360,23 +366,100 @@ async def download_one(job_id: str, item_id: int, user: str = Depends(current_us
                         headers={"Cache-Control": "private, no-store"})
 
 
-def _zip_name(job: Job) -> str:
-    roots = {i.parts[0] for i in job.items.values()}
-    return (next(iter(roots)) + ingest.EDITED_SUFFIX if len(roots) == 1 else "Edited Photos") + ".zip"
-
-
 @app.get("/api/jobs/{job_id}/download.zip")
-async def download_zip(job_id: str, user: str = Depends(current_user)):
+async def download_zip(job_id: str, numbering: int = Query(1), user: str = Depends(current_user)):
+    """`<original root folder>.zip`: same folder name, same sub-folders, photos in gallery order."""
     job = _job(job_id, user)
-    path = await run_in_threadpool(store.build_zip, job)
+    path = await run_in_threadpool(store.build_zip, job, bool(numbering))
     job.touch()
 
     def mark() -> None:
         job.downloaded_at = time.time()
         job.bump()
 
-    return FileResponse(path, filename=_zip_name(job), media_type="application/zip",
+    return FileResponse(path, filename=store.zip_name(job), media_type="application/zip",
                         headers={"Cache-Control": "private, no-store"}, background=BackgroundTask(mark))
+
+
+@app.get("/api/jobs/{job_id}/log.csv")
+async def download_log(job_id: str, numbering: int = Query(1), user: str = Depends(current_user)):
+    """Download log: where every original photo went (final name, position, room, excluded and why)."""
+    job = _job(job_id, user)
+    data = await run_in_threadpool(store.log_for, job, bool(numbering))
+    job.touch()
+    return Response(data, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": "attachment; filename=\"Roomlit log.csv\"", "Cache-Control": "private, no-store"})
+
+
+# ------------------------------------------------------------------ arrange: exclude / restore / order / main / room
+def _set(job: Job, set_id: int):
+    s = job.sets.get(set_id)
+    if s is None:
+        raise JobError(404, "set_not_found", "Folder not found")
+    return s
+
+
+def _edit_if_needed(job: Job, it: Item) -> None:
+    """A photo that was excluded before it was edited has to be edited when it comes back."""
+    if it.status == "ready" and job.sets[it.set_id].organized and it.included:
+        dispatcher.enqueue_process(job, it, job.mode)
+
+
+@app.post("/api/jobs/{job_id}/items/{item_id}/exclude")
+async def exclude_item(job_id: str, item_id: int, user: str = Depends(current_user)):
+    job = _job(job_id, user)
+    it = _item(job, item_id)
+    job.touch()
+    for promoted in store.set_exclude(job, it):          # a twin takes over so the angle is not lost
+        _edit_if_needed(job, promoted)
+    return {"ok": True}
+
+
+@app.post("/api/jobs/{job_id}/items/{item_id}/restore")
+async def restore_item(job_id: str, item_id: int, user: str = Depends(current_user)):
+    job = _job(job_id, user)
+    it = _item(job, item_id)
+    if it.status == "failed":
+        raise JobError(409, "failed_item", "This photo could not be processed.")
+    job.touch()
+    store.set_restore(job, it)
+    _edit_if_needed(job, it)
+    return {"ok": True}
+
+
+@app.post("/api/jobs/{job_id}/items/{item_id}/main")
+async def make_main(job_id: str, item_id: int, user: str = Depends(current_user)):
+    job = _job(job_id, user)
+    job.touch()
+    store.make_main(job, _item(job, item_id))
+    return {"ok": True}
+
+
+@app.post("/api/jobs/{job_id}/items/{item_id}/room")
+async def set_room(job_id: str, item_id: int, request: Request, user: str = Depends(current_user)):
+    job = _job(job_id, user)
+    job.touch()
+    store.set_room(job, _item(job, item_id), str((await _json(request)).get("room", "")))
+    return {"ok": True}
+
+
+@app.post("/api/jobs/{job_id}/sets/{set_id}/order")
+async def set_order(job_id: str, set_id: int, request: Request, user: str = Depends(current_user)):
+    job = _job(job_id, user)
+    order = (await _json(request)).get("order")
+    if not isinstance(order, list) or not all(isinstance(i, int) for i in order):
+        raise JobError(400, "bad_request", "Invalid order")
+    job.touch()
+    store.set_order(job, _set(job, set_id), order)
+    return {"ok": True}
+
+
+@app.post("/api/jobs/{job_id}/sets/{set_id}/reset-order")
+async def reset_order(job_id: str, set_id: int, user: str = Depends(current_user)):
+    job = _job(job_id, user)
+    job.touch()
+    store.reset_order(job, _set(job, set_id))
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ static

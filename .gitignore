@@ -7,3 +7,4 @@ tests/samples/
 tests/samples_src/
 *.log
 .env
+models/

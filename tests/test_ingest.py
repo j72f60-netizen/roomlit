@@ -19,14 +19,18 @@ def test_kinds():
     assert k("a/notes.txt") == "unsupported" and k("a/video.mov") == "unsupported"
 
 
-def test_output_path_mapping_matches_the_requested_structure():
+def test_output_paths_mirror_the_upload_exactly():
+    """Root folder and sub-folders keep their names; no 'Edited' / 'Airbnb' words are added anywhere."""
     f = lambda p: ingest.out_rel_for(ingest.with_root(ingest.split_rel(p)))
-    assert f("Photos Al Khuzama/1/img.jpg") == "Photos Al Khuzama - Edited/1/Edited - Airbnb/img.jpg"
-    assert f("Photos Al Khuzama/02/img.jpg") == "Photos Al Khuzama - Edited/02/Edited - Airbnb/img.jpg"
-    assert f("Photos Al Khuzama/a/b/img.jpg") == "Photos Al Khuzama - Edited/a/b/Edited - Airbnb/img.jpg"
-    assert f("Photos Al Khuzama/img.jpg") == "Photos Al Khuzama - Edited/Edited - Airbnb/img.jpg"
-    assert f("loose.jpg") == "Photos - Edited/Edited - Airbnb/loose.jpg"
-    assert ingest.out_rel_for(["R", "x.heic"], ".jpg") == "R - Edited/Edited - Airbnb/x.jpg"
+    assert f("Al Khuzama/1/img.jpg") == "Al Khuzama/1/img.jpg"
+    assert f("Al Khuzama/02/b.jpg") == "Al Khuzama/02/b.jpg"
+    assert f("Al Khuzama/a/b/img.jpg") == "Al Khuzama/a/b/img.jpg"
+    assert f("Al Khuzama/img.jpg") == "Al Khuzama/img.jpg"
+    assert f("loose.jpg") == "Photos/loose.jpg"
+    assert ingest.out_rel_for(["R", "x.heic"], ".jpg") == "R/x.jpg"
+    assert f("شقة الخزامة/غرفة ١/صورة.jpg") == "شقة الخزامة/غرفة ١/صورة.jpg"
+    assert f("Trailing space /x.jpg") == "Trailing space /x.jpg"             # names are not trimmed
+    assert ingest.out_ext_for("IMG_1.JPG") is None and ingest.out_ext_for("a.HEIC") == ".jpg"
 
 
 def test_duplicate_filenames_are_kept_safely_and_case_insensitively():
