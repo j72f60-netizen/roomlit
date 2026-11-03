@@ -30,6 +30,8 @@ from dataclasses import dataclass, field
 from . import ingest, ordering
 from .config import Settings
 from .engine.organize.classes import CLASSES
+
+ANGLE_KEEP = 2                     # keep in step with engine/organize/arrange.py (the web process never imports OpenCV)
 from .engine.presets import DEFAULT_MODE, PRESETS
 
 log = logging.getLogger("roomlit.store")
@@ -82,8 +84,10 @@ class Item:
     similar: list[int] = field(default_factory=list)
     auto_excluded: bool = False      # a better photo of the same shot exists
     dup_of: int | None = None
+    ex_kind: str = "dup"             # why the organizer set it aside: 'dup' (same shot) | 'angle' (more than the best two of one angle)
     user_state: str | None = None    # 'keep' (restored) | 'exclude' (removed by the user)
     sha: str = ""                    # SHA-256 of the uploaded bytes (recognises the very same file arriving twice)
+    retouch: list = field(default_factory=list)      # the user's strokes (remove / smooth), see engine/retouch_ops.py
 
     @property
     def name(self) -> str:
@@ -360,9 +364,9 @@ class JobStore:
                 it.room_group = int(groups.get(it.id, 0))
                 it.similar = list(similar.get(it.id, []))
                 if it.id in ex:
-                    it.auto_excluded, it.dup_of = True, ex[it.id]["dup_of"]
+                    it.auto_excluded, it.dup_of, it.ex_kind = True, ex[it.id]["dup_of"], ex[it.id].get("kind", "dup")
                 else:
-                    it.auto_excluded, it.dup_of = False, None
+                    it.auto_excluded, it.dup_of, it.ex_kind = False, None, "dup"
             if pset.manual:
                 self._fix_order(job, pset, preferred=res["order"])
             else:
@@ -432,6 +436,11 @@ class JobStore:
             job.arr_version += 1
             job.bump()
 
+    def set_retouch(self, job: Job, item: Item, ops: list) -> None:
+        with job.lock:
+            item.retouch = list(ops)
+            job.bump()
+
     def set_room(self, job: Job, item: Item, room: str) -> None:
         if room not in CLASSES:
             raise JobError(400, "bad_room", "Unknown room type")
@@ -489,12 +498,12 @@ class JobStore:
                     "v": it.version, "bytes": it.out_bytes, "src_bytes": it.size,
                     "out": it.out_rel, "sec": it.seconds,
                     "pos": pos.get(it.id, 0), "ex": it.excluded and it.status != "failed",
-                    "ex_why": ("user" if it.user_state == "exclude" else "dup") if it.excluded else None,
+                    "ex_why": ("user" if it.user_state == "exclude" else it.ex_kind) if it.excluded else None,
                     "dup_of": it.dup_of if it.excluded and it.user_state != "exclude" else None,
                     "restored": it.user_state == "keep",
                     "room": it.room, "room_conf": round(it.room_conf, 2), "room_sure": it.room_sure,
                     "room_alts": it.room_alts, "room_user": it.room_user,
-                    "similar": it.similar, "org": it.organized, "renamed": it.renamed,
+                    "similar": it.similar, "org": it.organized, "renamed": it.renamed, "rt": len(it.retouch),
                 })
             sets = [{"id": s.id, "key": s.key, "label": s.label, "organized": s.organized, "manual": s.manual,
                      "order": list(s.order)} for s in sorted(job.sets.values(), key=lambda s: natural_key(s.key))]
@@ -572,8 +581,13 @@ class JobStore:
                     elif it.excluded:
                         status = "excluded"
                         keeper = job.items.get(it.dup_of) if it.dup_of else None
-                        why = ("Removed by user" if it.user_state == "exclude" else
-                               f"Same shot as {keeper.name} (kept the better photo)" if keeper else "Duplicate")
+                        if it.user_state == "exclude":
+                            why = "Removed by user"
+                        elif keeper:
+                            why = (f"Same angle as {keeper.name} (kept the best {ANGLE_KEEP})" if it.ex_kind == "angle"
+                                   else f"Same shot as {keeper.name} (kept the better photo)")
+                        else:
+                            why = "Duplicate"
                     elif delivered:
                         status, why = "included", ""
                     else:

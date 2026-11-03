@@ -5,7 +5,8 @@ image processing. Upload photos, folders or ZIPs straight from an external drive
 before/after, download one organised ZIP. Nothing is stored permanently.
 
 * Python · FastAPI · OpenCV · Pillow · NumPy · plain HTML/CSS/JS (English + Arabic/RTL)
-* No paid APIs, no generative models. Every pixel in the output derives from the same pixel in the input.
+* No paid APIs, no generative models. Every pixel in the output derives from the same pixel in the input, except where you
+  paint a touch-up yourself (see Retouch).
 
 ## What the editor does (and never does)
 
@@ -55,6 +56,19 @@ Per **apartment** (= the folder that directly contains the photos; folders are n
   entrance, exterior, parking. Different angles of one room are spread out; rooms that do not exist are never invented.
 * **Control**: drag and drop (or the arrow buttons) to reorder, "Make main photo", Exclude / Restore, correct a room label,
   "Suggested order" to start over. The header shows original / final / excluded counts.
+
+## Retouch (you paint, the bot fixes only that spot)
+
+Open a photo, press **Retouch**, paint over the spot and press *Apply and re-edit*; compare with Before / After.
+
+* **Remove object**: the painted area is filled from the pixels around it (diffusion inpainting + the surrounding grain), with
+  no AI model. Works best on thin or small things on plain surfaces (broom handle, cable, socket, a mark); anything
+  behind a big object, or a busy background, can smudge, so paint tightly. Nothing outside the stroke changes.
+* **Smooth fabric**: softens low-contrast creases on sheets and curtains (luma only, edges and grain kept). It softens
+  creases, it cannot iron a heavily rumpled duvet.
+* Strokes are saved per photo, survive "re-edit", and can be cleared. Excluded photos keep them for when they are restored.
+* Same angle shot many times: Smart organise keeps the **best two** photos of one viewpoint and sets the rest aside
+  (restorable); different angles are never capped.
 
 ## Download
 

@@ -125,12 +125,28 @@
           <div class="cmp-handle" id="cmp-handle" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"><span></span></div>
           <span class="tag tag-l" id="tag-before">Before</span>
           <span class="tag tag-r" id="tag-after">After</span>
+          <canvas id="rt-canvas" class="rt-canvas hidden" aria-label="Retouch"></canvas>
         </div>
         <p id="m-pending" class="muted hidden"></p>
+      </div>
+      <div id="rt-panel" class="rt-panel hidden">
+        <p class="muted small" data-i18n="rt_hint">Paint over what should go.</p>
+        <div class="rt-row">
+          <div class="seg" role="radiogroup">
+            <label><input type="radio" name="rt-tool" value="remove" checked><span data-i18n="rt_remove">Remove object</span></label>
+            <label><input type="radio" name="rt-tool" value="smooth"><span data-i18n="rt_smooth">Smooth fabric</span></label>
+          </div>
+          <label class="inline"><span data-i18n="rt_size">Brush</span><input type="range" id="rt-size" min="3" max="50" value="8"></label>
+          <button class="btn sm" id="rt-undo" type="button" data-i18n="rt_undo">Undo</button>
+          <button class="btn sm" id="rt-clear" type="button" data-i18n="rt_clear">Clear all</button>
+          <button class="btn sm" id="rt-cancel" type="button" data-i18n="rt_cancel">Cancel</button>
+          <button class="btn primary sm" id="rt-apply" type="button" data-i18n="rt_apply">Apply and re-edit</button>
+        </div>
       </div>
       <div class="modal-foot">
         <label class="inline"><span data-i18n="mode_label">Mode</span>
           <select id="m-mode"></select></label>
+        <button class="btn" id="m-retouch" type="button" data-i18n="retouch">Retouch</button>
         <button class="btn" id="m-reedit" type="button" data-i18n="reedit">Re-edit this photo</button>
         <button class="btn" id="m-main" type="button" data-i18n="make_main">Make main photo</button>
         <button class="btn" id="m-excl" type="button" data-i18n="exclude">Exclude</button>

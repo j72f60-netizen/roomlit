@@ -29,6 +29,7 @@ ROOM_MIN_RATIO = 0.30
 SURE_P = 0.55                         # room label is "sure" above this probability ...
 SURE_MARGIN = 0.20                    # ... and this lead over the runner-up
 MAX_CANDIDATES = 10
+ANGLE_KEEP = 2                        # one viewpoint shot many times: only the best two stay in the gallery
 
 
 @dataclass
@@ -129,6 +130,24 @@ def arrange(items: list[Item]) -> Result:
                 assigned[b] = a
                 res.excluded[items[b].id] = {"dup_of": items[a].id, "inliers": p.n_in, "d_mean": round(p.d_mean, 4)}
     kept = [k for k in range(len(items)) if k not in assigned]
+
+    # ---- one viewpoint shot many times: keep the best two, set the rest aside (restorable).  A photo joins the
+    # cluster of the best photo it looks like (never by chaining), so different angles are never merged.
+    clusters: list[list[int]] = []
+    for a in sorted(kept, key=lambda k: (-round(items[k].score * 20), k)):
+        for cl in clusters:
+            p = stats.get((min(a, cl[0]), max(a, cl[0])))
+            if p is not None and is_similar(p):
+                cl.append(a)
+                break
+        else:
+            clusters.append([a])
+    for cl in clusters:
+        for b in cl[ANGLE_KEEP:]:
+            p = stats[(min(b, cl[0]), max(b, cl[0]))]
+            assigned[b] = cl[0]
+            res.excluded[items[b].id] = {"dup_of": items[cl[0]].id, "inliers": p.n_in, "d_mean": round(p.d_mean, 4), "kind": "angle"}
+    kept = [k for k in kept if k not in assigned]
 
     # ---- borderline pairs among kept photos -> flagged, never removed
     for (i, j), p in stats.items():

@@ -136,3 +136,34 @@ def test_uncertain_room_labels_are_flagged_not_forced(tmp_path):
     assert byname["k"]["sure"] is True and byname["k"]["label"] == "kitchen"
     assert not byname["l1"]["sure"] and not byname["p1"]["sure"]                # weak guesses are offered as suggestions
     assert all(len(v["alts"]) == 3 for v in byname.values())
+
+
+def ring(a, radius, k):
+    """The same room from slightly different spots: k camera positions on a circle (% of the width) around `a`."""
+    out = []
+    for n in range(k):
+        ang = 2 * np.pi * n / k
+        out.append(synth.shifted(a, radius * a.shape[1] * np.cos(ang), radius * a.shape[0] * np.sin(ang)))
+    return out
+
+
+def test_one_angle_shot_many_times_keeps_only_the_best_two(tmp_path):
+    a = synth.layout(8, w=960, h=720)
+    sharp = {f"take_{n}.jpg": im for n, im in enumerate(ring(a, 0.07, 3), 1)}
+    # the original (sharpest) plus three nudged takes with a little more blur each: six photos of one angle
+    named = {"best.jpg": a, **{k: cv2.GaussianBlur(v, (0, 0), 0.6 + 0.4 * n) for n, (k, v) in enumerate(sharp.items())},
+             "other_room.jpg": synth.layout(9, w=960, h=720)}
+    r, n = run(tmp_path, named, model=False)
+    kept = [n[i] for i in r["order"]]
+    assert "other_room.jpg" in kept and "best.jpg" in kept
+    from_angle = [k for k in kept if k != "other_room.jpg"]
+    assert len(from_angle) == 2, (kept, excluded_names(r, n))                 # best two of that angle, not all four
+    angle_ex = {n[i]: e for i, e in r["excluded"].items() if e.get("kind") == "angle"}
+    assert len(angle_ex) == 2 and all(n[e["dup_of"]] == "best.jpg" for e in angle_ex.values())
+
+
+def test_different_angles_are_never_capped(tmp_path):
+    a = synth.layout(10, w=960, h=720)
+    r, n = run(tmp_path, {"front.jpg": a, "side.jpg": synth.other_angle(a), "far_corner.jpg": synth.layout(11, w=960, h=720),
+                          "bed.jpg": synth.layout(12, w=960, h=720)}, model=False)
+    assert len(r["order"]) == 4 and not r["excluded"]

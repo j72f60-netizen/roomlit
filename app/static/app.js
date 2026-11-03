@@ -23,7 +23,9 @@ const I18N = {
     uploading: 'Uploading {done} of {total}…', upload_done: 'Upload complete',
     preparing: 'Preparing {n} photos…', processing: 'Editing: {done} of {total} done', all_done: 'All photos edited',
     s_uploaded: 'Waiting', s_analyzing: 'Preparing', s_ready: 'Ready', s_queued: 'Queued', s_processing: 'Editing…', s_done: 'Done', s_failed: 'Failed',
-    download_all: 'Download all (ZIP)', download: 'Download', reedit: 'Re-edit this photo', reedit_all_label: 'Re-edit all photos with', apply: 'Apply',
+    download_all: 'Download all (ZIP)', download: 'Download', retouch: 'Retouch', retouched: 'Retouched', rt_remove: 'Remove object', rt_smooth: 'Smooth fabric', rt_size: 'Brush', rt_undo: 'Undo', rt_clear: 'Clear all', rt_cancel: 'Cancel', rt_apply: 'Apply and re-edit', rt_applied: 'Retouch applied: the photo is being edited again.', rt_limit: 'That is a lot of strokes. Apply these first.',
+    rt_hint: 'Paint over what should go. “Remove object” fills the area from its surroundings and works best on thin or small things (a broom handle, a cable, a socket); big objects leave smudges. “Smooth fabric” softens creases on sheets and curtains. Check the result with Before / After.',
+    reedit: 'Re-edit this photo', reedit_all_label: 'Re-edit all photos with', apply: 'Apply',
     dl_started: 'Download started. When your ZIP has finished saving, remove the photos from the server.',
     delete_now: 'Delete from server now',
     retention: 'Photos are deleted from the server automatically in {m} min. Originals on your drive are never modified.',
@@ -42,7 +44,7 @@ const I18N = {
     c_original: 'Original {n}', c_final: 'Final {n}', c_excluded: 'Excluded {n}', c_failed: 'Failed {n}',
     organizing: 'Organizing photos (duplicates, rooms, order)…',
     main_photo: 'Main photo', make_main: 'Make main photo', make_main_s: 'Make main', exclude: 'Exclude', restore: 'Restore',
-    excluded_title: 'Excluded photos ({n})', ex_dup: 'Same shot as {name}: the better photo was kept', ex_user: 'Excluded by you',
+    excluded_title: 'Excluded photos ({n})', ex_dup: 'Same shot as {name}: the better photo was kept', ex_angle: 'Same angle as {name}: only the best 2 of an angle are kept', ex_user: 'Excluded by you',
     similar: 'Similar to another photo', unsure: 'Unsure', suggested_room: 'Suggested room: please check',
     drag_hint: 'Drag photos to change the order. Photo 1 is the main photo.', reset_order: 'Suggested order', arranged_by_you: 'Arranged by you',
     pending_new: 'New photos (not arranged yet)', numbering: 'Number the photos in the final order (01 - name) so the platform keeps it. Untick to keep the exact original file names.',
@@ -79,7 +81,9 @@ const I18N = {
     uploading: 'جارٍ الرفع {done} من {total}…', upload_done: 'اكتمل الرفع',
     preparing: 'جارٍ تحضير {n} صورة…', processing: 'جارٍ التحرير: اكتمل {done} من {total}', all_done: 'تم تحرير جميع الصور',
     s_uploaded: 'بالانتظار', s_analyzing: 'قيد التحضير', s_ready: 'جاهزة', s_queued: 'في الطابور', s_processing: 'جارٍ التحرير…', s_done: 'تم', s_failed: 'فشل',
-    download_all: 'تحميل الكل (ZIP)', download: 'تحميل', reedit: 'إعادة تحرير هذه الصورة', reedit_all_label: 'إعادة تحرير كل الصور بنمط', apply: 'تطبيق',
+    download_all: 'تحميل الكل (ZIP)', download: 'تحميل', retouch: 'تنقيح', retouched: 'منقّحة', rt_remove: 'إزالة شيء', rt_smooth: 'تنعيم القماش', rt_size: 'الفرشاة', rt_undo: 'تراجع', rt_clear: 'مسح الكل', rt_cancel: 'إلغاء', rt_apply: 'تطبيق وإعادة التحرير', rt_applied: 'طُبّق التنقيح: تُعدَّل الصورة من جديد.', rt_limit: 'عدد الضربات كبير. طبّق هذه أولًا.',
+    rt_hint: 'ارسم فوق ما تريد إزالته. «إزالة شيء» تملأ المكان من محيطه وتعمل أفضل مع الأشياء الرفيعة أو الصغيرة (عصا مكنسة، سلك، مقبس)، أما الأشياء الكبيرة فتترك أثرًا. «تنعيم القماش» يخفف التجاعيد على الشراشف والستائر. راجع النتيجة بمقارنة قبل / بعد.',
+    reedit: 'إعادة تحرير هذه الصورة', reedit_all_label: 'إعادة تحرير كل الصور بنمط', apply: 'تطبيق',
     dl_started: 'بدأ التحميل. بعد اكتمال حفظ ملف ZIP، احذف الصور من الخادم.',
     delete_now: 'احذف من الخادم الآن',
     retention: 'تُحذف الصور من الخادم تلقائيًا بعد {m} دقيقة. ملفاتك الأصلية على القرص لا تتغير أبدًا.',
@@ -98,7 +102,7 @@ const I18N = {
     c_original: 'الأصلية {n}', c_final: 'النهائية {n}', c_excluded: 'المستبعدة {n}', c_failed: 'الفاشلة {n}',
     organizing: 'جارٍ تنظيم الصور (التكرار، الغرف، الترتيب)…',
     main_photo: 'الصورة الرئيسية', make_main: 'اجعلها الصورة الرئيسية', make_main_s: 'اجعلها رئيسية', exclude: 'استبعاد', restore: 'استعادة',
-    excluded_title: 'الصور المستبعدة ({n})', ex_dup: 'نفس اللقطة مثل {name}: احتُفظ بالأفضل', ex_user: 'استبعدتها أنت',
+    excluded_title: 'الصور المستبعدة ({n})', ex_dup: 'نفس اللقطة مثل {name}: احتُفظ بالأفضل', ex_angle: 'نفس الزاوية مثل {name}: يُحتفظ بأفضل صورتين من كل زاوية', ex_user: 'استبعدتها أنت',
     similar: 'تشبه صورة أخرى', unsure: 'غير مؤكد', suggested_room: 'غرفة مقترحة: يُرجى التأكد',
     drag_hint: 'اسحب الصور لتغيير الترتيب. الصورة رقم 1 هي الرئيسية.', reset_order: 'الترتيب المقترح', arranged_by_you: 'رتّبتها أنت',
     pending_new: 'صور جديدة (لم تُرتّب بعد)', numbering: 'ترقيم الصور بالترتيب النهائي (01 - الاسم) ليحافظ الموقع عليه. أزل العلامة للإبقاء على أسماء الملفات الأصلية.',
@@ -464,7 +468,7 @@ function updateCard(c, it, kind, idx, total) {
   c.name.textContent = it.name; c.name.title = it.name;
   c.num.classList.toggle('hidden', kind !== 'arranged'); c.num.textContent = idx + 1;
   c.ribbon.classList.toggle('hidden', !(kind === 'arranged' && idx === 0)); c.ribbon.textContent = '★ ' + t('main_photo');
-  let label = t('s_' + it.status) + (it.status === 'done' && it.mode ? ' · ' + t('mode_' + it.mode) : '');
+  let label = t('s_' + it.status) + (it.status === 'done' && it.mode ? ' · ' + t('mode_' + it.mode) : '') + (it.rt ? ' · ' + t('retouched') : '');
   if (it.status === 'failed') label = t('s_failed') + (it.err ? ': ' + it.err : '');
   c.chip.className = 'chip ' + (kind === 'excluded' ? '' : (STATUS_CLASS[it.status] || '')); c.chip.textContent = kind === 'excluded' ? '' : label;
   c.chip.classList.toggle('hidden', kind === 'excluded'); if (it.err) c.chip.title = it.err;
@@ -480,7 +484,7 @@ function updateCard(c, it, kind, idx, total) {
     const unsure = !it.room_sure && !it.room_user;
     c.room.classList.toggle('unsure', unsure); c.room.title = unsure ? t('suggested_room') : t('room_label');
   }
-  const why = kind === 'excluded' ? (it.ex_why === 'dup' ? t('ex_dup', { name: (itemById(it.dup_of) || {}).name || '' }) : t('ex_user'))
+  const why = kind === 'excluded' ? (it.ex_why === 'dup' || it.ex_why === 'angle' ? t('ex_' + it.ex_why, { name: (itemById(it.dup_of) || {}).name || '' }) : t('ex_user'))
     : (it.renamed ? t('renamed_hint', { name: it.out.split('/').pop() }) : '');
   c.why.textContent = why; c.why.classList.toggle('hidden', !why);
   c.bMain.classList.toggle('hidden', !(kind === 'arranged' && idx > 0));
@@ -603,14 +607,14 @@ $('#btn-reedit-all').addEventListener('click', async () => {
 /* ------------------------------------------------------------------ compare modal */
 const modal = $('#modal'), cmp = $('#cmp');
 function orderedIds() { return S.job ? S.job.items.map((i) => i.id) : []; }
-function openModal(id) { S.modalId = id; modal.classList.remove('hidden'); document.body.style.overflow = 'hidden'; S.mKey = null; renderModal(); $('#m-close').focus(); }
-function closeModal() { S.modalId = null; modal.classList.add('hidden'); document.body.style.overflow = ''; }
-function step(d) { const ids = orderedIds(); const i = ids.indexOf(S.modalId); if (i < 0) return; S.modalId = ids[(i + d + ids.length) % ids.length]; S.mKey = null; renderModal(); }
+function openModal(id) { rtClose(); S.modalId = id; modal.classList.remove('hidden'); document.body.style.overflow = 'hidden'; S.mKey = null; renderModal(); $('#m-close').focus(); }
+function closeModal() { rtClose(); S.modalId = null; modal.classList.add('hidden'); document.body.style.overflow = ''; }
+function step(d) { rtClose(); const ids = orderedIds(); const i = ids.indexOf(S.modalId); if (i < 0) return; S.modalId = ids[(i + d + ids.length) % ids.length]; S.mKey = null; renderModal(); }
 $('#m-close').onclick = closeModal; $('#m-prev').onclick = () => step(-1); $('#m-next').onclick = () => step(1);
 modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 window.addEventListener('keydown', (e) => {
   if (S.modalId == null) return;
-  if (e.key === 'Escape') closeModal(); else if (e.key === 'ArrowRight' && e.target.id !== 'cmp-handle') step(lang === 'ar' ? -1 : 1); else if (e.key === 'ArrowLeft' && e.target.id !== 'cmp-handle') step(lang === 'ar' ? 1 : -1);
+  if (e.key === 'Escape') { if (RT.on) rtClose(); else closeModal(); } else if (RT.on) { /* arrows do nothing while painting */ } else if (e.key === 'ArrowRight' && e.target.id !== 'cmp-handle') step(lang === 'ar' ? -1 : 1); else if (e.key === 'ArrowLeft' && e.target.id !== 'cmp-handle') step(lang === 'ar' ? 1 : -1);
 });
 function renderModal() {
   const it = itemById(S.modalId); if (!it) return closeModal();
@@ -632,6 +636,7 @@ function renderModal() {
   const busy = ['queued', 'processing', 'uploaded', 'analyzing'].includes(it.status);
   fillModeSelect($('#m-mode'), $('#m-mode').dataset.id == it.id ? $('#m-mode').value : (it.mode || S.job.mode)); $('#m-mode').dataset.id = it.id;
   $('#m-reedit').disabled = busy || it.status === 'ready';
+  $('#m-retouch').disabled = busy || !['done', 'ready'].includes(it.status) || !it.w;
   $('#m-main').classList.toggle('hidden', !(it.pos > 1)); $('#m-excl').classList.toggle('hidden', it.status === 'failed');
   $('#m-excl').textContent = it.ex ? t('restore') : t('exclude');
   const dl = $('#m-dl'); dl.classList.toggle('hidden', !done); dl.href = '/api/jobs/' + S.job.id + '/items/' + it.id + '/download';
@@ -641,7 +646,8 @@ $('#m-excl').addEventListener('click', () => { const it = itemById(S.modalId); i
 $('#cmp-after').addEventListener('load', (e) => { const i = e.target; if (i.naturalWidth) { cmp.style.aspectRatio = i.naturalWidth + ' / ' + i.naturalHeight; fitCmp(i); } });
 $('#cmp-before').addEventListener('load', (e) => { const i = e.target; const it = itemById(S.modalId); if (i.naturalWidth && !(it && it.status === 'done')) { cmp.style.aspectRatio = i.naturalWidth + ' / ' + i.naturalHeight; fitCmp(i); } });
 function fitCmp(i) { // keep the stage inside the viewport while preserving the photo's aspect ratio
-  const maxH = Math.max(240, window.innerHeight - 260); cmp.style.width = Math.min(cmp.parentElement.clientWidth - 0, maxH * (i.naturalWidth / i.naturalHeight)) + 'px';
+  const maxH = Math.max(240, window.innerHeight - (RT.on ? 380 : 260)); cmp.style.width = Math.min(cmp.parentElement.clientWidth - 0, maxH * (i.naturalWidth / i.naturalHeight)) + 'px';
+  if (RT.on) { rtLayout(); rtDraw(); }
 }
 window.addEventListener('resize', () => { const i = $('#cmp-after'); if (S.modalId != null && i.naturalWidth) fitCmp(i); });
 function setPos(p) { p = Math.max(0, Math.min(100, p)); cmp.style.setProperty('--pos', p + '%'); $('#cmp-handle').setAttribute('aria-valuenow', Math.round(p)); }
@@ -656,6 +662,55 @@ function setPos(p) { p = Math.max(0, Math.min(100, p)); cmp.style.setProperty('-
     if (e.key === 'ArrowLeft') { setPos(cur - 5); e.preventDefault(); e.stopPropagation(); } if (e.key === 'ArrowRight') { setPos(cur + 5); e.preventDefault(); e.stopPropagation(); }
   });
 })();
+/* ---- retouch: paint on the original photo; strokes are fractions of the photo as displayed */
+const RT = { on: false, ops: [], tool: 'remove', size: { remove: 8, smooth: 30 }, cur: null };
+const rtCv = $('#rt-canvas');
+const rtPoints = () => RT.ops.reduce((n, o) => n + o.pts.length, 0) + (RT.cur ? RT.cur.pts.length : 0);
+async function rtOpen() {
+  const it = itemById(S.modalId); if (!it) return;
+  try { RT.ops = (await api('/jobs/' + S.job.id + '/items/' + it.id + '/retouch')).ops || []; } catch (e) { toast(errText(e), true); return; }
+  RT.on = true; RT.cur = null; modal.classList.add('rt-mode'); $('#rt-panel').classList.remove('hidden'); rtCv.classList.remove('hidden');
+  setPos(100);                                                    // show the whole original: that is what is painted on
+  const i = $('#cmp-after'); if (i.naturalWidth) fitCmp(i); else { rtLayout(); rtDraw(); }
+  rtSyncTool();
+}
+function rtClose() {
+  if (!RT.on) return;
+  RT.on = false; RT.cur = null; modal.classList.remove('rt-mode'); $('#rt-panel').classList.add('hidden'); rtCv.classList.add('hidden'); setPos(50);
+  const i = $('#cmp-after'); if (i.naturalWidth) fitCmp(i);
+}
+function rtLayout() { const r = cmp.getBoundingClientRect(), d = window.devicePixelRatio || 1; rtCv.width = Math.max(1, Math.round(r.width * d)); rtCv.height = Math.max(1, Math.round(r.height * d)); }
+function rtDraw() {
+  const g = rtCv.getContext('2d'), W = rtCv.width, H = rtCv.height, L = Math.max(W, H); g.clearRect(0, 0, W, H);
+  for (const op of RT.cur ? [...RT.ops, RT.cur] : RT.ops) {
+    g.strokeStyle = g.fillStyle = op.t === 'remove' ? 'rgba(220,38,38,.5)' : 'rgba(37,99,235,.5)'; g.lineCap = g.lineJoin = 'round'; g.lineWidth = Math.max(2, 2 * op.r * L);
+    g.beginPath(); op.pts.forEach(([x, y], k) => (k ? g.lineTo(x * W, y * H) : g.moveTo(x * W, y * H)));
+    if (op.pts.length === 1) { g.beginPath(); g.arc(op.pts[0][0] * W, op.pts[0][1] * H, op.r * L, 0, 7); g.fill(); } else g.stroke();
+  }
+}
+function rtSyncTool() { $('#rt-size').value = RT.size[RT.tool]; document.querySelectorAll('input[name=rt-tool]').forEach((r) => { r.checked = r.value === RT.tool; }); }
+function rtPt(e) { const r = rtCv.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))].map((v) => Math.round(v * 1e5) / 1e5); }
+rtCv.addEventListener('pointerdown', (e) => {
+  if (!RT.on) return; e.preventDefault(); e.stopPropagation();
+  if (RT.ops.length >= 59 || rtPoints() > 5800) { toast(t('rt_limit'), true); return; }
+  rtCv.setPointerCapture(e.pointerId); RT.cur = { t: RT.tool, r: RT.size[RT.tool] / 1000, pts: [rtPt(e)] }; rtDraw();
+});
+rtCv.addEventListener('pointermove', (e) => {
+  if (!RT.cur) return; const p = rtPt(e), q = RT.cur.pts[RT.cur.pts.length - 1];
+  if (Math.hypot(p[0] - q[0], p[1] - q[1]) > 0.004 && RT.cur.pts.length < 590 && rtPoints() < 5900) { RT.cur.pts.push(p); rtDraw(); }
+});
+const rtEnd = () => { if (!RT.cur) return; RT.ops.push(RT.cur); RT.cur = null; rtDraw(); };
+rtCv.addEventListener('pointerup', rtEnd); rtCv.addEventListener('pointercancel', rtEnd);
+document.querySelectorAll('input[name=rt-tool]').forEach((r) => r.addEventListener('change', () => { RT.tool = r.value; rtSyncTool(); }));
+$('#rt-size').addEventListener('input', (e) => { RT.size[RT.tool] = +e.target.value; });
+$('#rt-undo').addEventListener('click', () => { RT.ops.pop(); rtDraw(); });
+$('#rt-clear').addEventListener('click', () => { RT.ops = []; rtDraw(); });
+$('#rt-cancel').addEventListener('click', rtClose);
+$('#rt-apply').addEventListener('click', async () => {
+  const id = S.modalId; if (id == null) return;
+  try { await api('/jobs/' + S.job.id + '/items/' + id + '/retouch', { method: 'POST', body: { ops: RT.ops } }); toast(t('rt_applied')); rtClose(); await poll(true); } catch (e) { toast(errText(e), true); }
+});
+$('#m-retouch').addEventListener('click', rtOpen);
 $('#m-reedit').addEventListener('click', async () => {
   try { await api('/jobs/' + S.job.id + '/items/' + S.modalId + '/reprocess', { method: 'POST', body: { mode: $('#m-mode').value } }); toast(t('reprocess_queued')); await poll(true); } catch (e) { toast(errText(e), true); }
 });

@@ -19,6 +19,7 @@ import threading
 
 from . import config, ingest, modelfetch
 from .engine.presets import DEFAULT_MODE, PRESETS
+from .engine.retouch_ops import BadStrokes, clean_ops
 from .runner import Dispatcher
 from .security import COOKIE, Auth, SecurityMiddleware, client_ip
 from .store import DEFAULT_SUFFIX, Item, Job, JobError, JobStore
@@ -446,6 +447,31 @@ async def make_main(job_id: str, item_id: int, user: str = Depends(current_user)
     return {"ok": True}
 
 
+@app.get("/api/jobs/{job_id}/items/{item_id}/retouch")
+async def get_retouch(job_id: str, item_id: int, user: str = Depends(current_user)):
+    job = _job(job_id, user)
+    return {"ops": list(_item(job, item_id).retouch)}
+
+
+@app.post("/api/jobs/{job_id}/items/{item_id}/retouch")
+async def set_retouch(job_id: str, item_id: int, request: Request, user: str = Depends(current_user)):
+    """Replace the user's touch-up strokes for one photo and edit it again with them ([] clears them)."""
+    job = _job(job_id, user)
+    it = _item(job, item_id)
+    try:
+        ops = clean_ops((await _json(request)).get("ops"))
+    except BadStrokes as e:
+        raise JobError(400, "bad_strokes", str(e))
+    if it.status not in ("ready", "done", "failed") or not os.path.exists(job.p_original(it.id)):
+        raise JobError(409, "not_retouchable", "This photo cannot be retouched right now.")
+    job.touch()
+    store.set_retouch(job, it, ops)
+    again = it.status in ("done", "failed")          # a photo still waiting (e.g. excluded) just keeps the strokes for later
+    if again:
+        dispatcher.reprocess(job, it, it.mode or job.mode)
+    return {"ok": True, "queued": again}
+
+
 @app.post("/api/jobs/{job_id}/items/{item_id}/room")
 async def set_room(job_id: str, item_id: int, request: Request, user: str = Depends(current_user)):
     job = _job(job_id, user)
@@ -474,13 +500,33 @@ async def reset_order(job_id: str, set_id: int, user: str = Depends(current_user
 
 
 # ------------------------------------------------------------------ static
+def _asset_version() -> str:
+    """Changes whenever a static file changes, so a browser never mixes a new page with old CSS / JS."""
+    try:
+        return str(int(max(os.path.getmtime(os.path.join(STATIC, f)) for f in os.listdir(STATIC))))
+    except OSError:
+        return "0"
+
+
 @app.get("/", include_in_schema=False)
 async def index():
-    return FileResponse(os.path.join(STATIC, "index.html"), media_type="text/html",
-                        headers={"Cache-Control": "no-store"})
+    with open(os.path.join(STATIC, "index.html"), encoding="utf-8") as f:
+        html = f.read()
+    v = _asset_version()
+    for asset in ("app.css", "app.js"):
+        html = html.replace(f'/static/{asset}"', f'/static/{asset}?v={v}"')
+    return Response(html, media_type="text/html", headers={"Cache-Control": "no-store"})
 
 
-app.mount("/static", StaticFiles(directory=STATIC), name="static")
+class _RevalidatedStatic(StaticFiles):
+    """Static files are re-checked (ETag) on every load instead of being cached heuristically for hours."""
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
+app.mount("/static", _RevalidatedStatic(directory=STATIC), name="static")
 
 # Development only: lets browser tests pull sample photos from the same origin (never active in production).
 if cfg.dev and os.environ.get("DEV_SAMPLES_DIR"):

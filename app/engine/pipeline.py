@@ -12,7 +12,7 @@ from dataclasses import asdict
 
 import cv2
 
-from . import imageio
+from . import imageio, retouch
 from .enhance import Analysis, analyze_bgr, enhance_inplace, group_white_balance, make_context
 from .presets import get_preset
 
@@ -51,7 +51,8 @@ def group_params(analyses: list[dict]) -> dict:
 
 
 def process_file(src: str, dst: str, preview_dir: str, item_id: int, mode: str,
-                 group_wb: tuple[float, float, float] | None, max_pixels: int, container: str | None = None) -> dict:
+                 group_wb: tuple[float, float, float] | None, max_pixels: int, container: str | None = None,
+                 strokes: list | None = None) -> dict:
     t0 = time.perf_counter()
     preset = get_preset(mode)
     meta = imageio.inspect(src, max_pixels)
@@ -59,6 +60,8 @@ def process_file(src: str, dst: str, preview_dir: str, item_id: int, mode: str,
         meta.out_ext = container
     img = imageio.load_bgr(src, meta)
     h, w = img.shape[:2]
+    if strokes:                        # the user's own touch-ups (remove / smooth) come first, so the edit treats them as the photo
+        retouch.apply(img, strokes, meta.orientation)
     an = analyze_bgr(img)
     ctx = make_context(img, an, preset, group_wb)
     enhance_inplace(img, ctx)

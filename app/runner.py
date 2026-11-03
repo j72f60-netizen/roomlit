@@ -261,7 +261,8 @@ class Dispatcher:
             res = await asyncio.to_thread(
                 self.worker.call, "process",
                 (job.p_original(item.id), job.p_edited(item.id), job.p_preview, item.id, mode,
-                 group_wb, self.cfg.max_pixels, ingest.container_for(item.name)), self.cfg.task_timeout_s)
+                 group_wb, self.cfg.max_pixels, ingest.container_for(item.name), list(item.retouch)),
+                self.cfg.task_timeout_s)
         except (ImageProblem, WorkerError) as e:
             self._fail(job, item, str(e), drop_original=isinstance(e, ImageProblem))
             return
