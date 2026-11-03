@@ -209,8 +209,8 @@ class Dispatcher:
     async def _organize(self, job: Job, mode: str) -> None:
         """Decide the final order of every apartment folder that has new photos, then queue the edits.
 
-        Default: nothing is removed and nothing is moved - every photo is kept, in file-manager name order.
-        Smart organisation (opt-in) additionally removes same-shot copies and arranges the gallery for Airbnb."""
+        Smart (default): same-shot copies are set aside (restorable) and the gallery is arranged for Airbnb / Booking.
+        Plain (the user unticked it): every photo is kept, in file-manager name order."""
         t0 = time.time()
         sets = self.store.sets_needing_organization(job)
         results: dict | None = None
@@ -289,8 +289,8 @@ class Dispatcher:
         log.info("job %s item %s failed: %s", job.id[:6], item.id, message[:80])
 
     # -------------------------------------------------------------- user actions
-    def start_job(self, job: Job, mode: str, smart: bool = False) -> int:
-        """Fix the order (and, only if asked, remove same-shot copies), then edit every new photo that was kept."""
+    def start_job(self, job: Job, mode: str, smart: bool = True) -> int:
+        """Fix the order (smart: also set same-shot copies aside), then edit every new photo that was kept."""
         mode = mode if mode in PRESETS else DEFAULT_MODE
         with job.lock:
             job.mode = mode

@@ -72,6 +72,7 @@ select { width: auto; margin: 0; padding: .42rem .6rem; }
 .counts span { font-size: .8rem; font-weight: 650; padding: .15rem .6rem; border-radius: 6px; background: var(--neutral-tint); color: #334155; }
 .counts .c-final { background: var(--ok-tint); color: var(--ok); } .counts .c-ex { background: var(--accent-tint); color: var(--accent-dark); } .counts .c-bad { background: var(--danger-tint); color: var(--danger); }
 .check { display: flex; align-items: center; gap: .5rem; font-size: .86rem; cursor: pointer; } .check input { width: auto; margin: 0; }
+.suffix-row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; font-size: .86rem; } .suffix-row input { width: 14rem; max-width: 100%; margin: 0; padding: .4rem .6rem; }
 .bar i.indet { width: 35% !important; animation: slide 1.2s ease-in-out infinite alternate; }
 @keyframes slide { from { margin-inline-start: 0; } to { margin-inline-start: 65%; } }
 

@@ -21,7 +21,7 @@ from . import config, ingest, modelfetch
 from .engine.presets import DEFAULT_MODE, PRESETS
 from .runner import Dispatcher
 from .security import COOKIE, Auth, SecurityMiddleware, client_ip
-from .store import Item, Job, JobError, JobStore
+from .store import DEFAULT_SUFFIX, Item, Job, JobError, JobStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("roomlit")
@@ -308,7 +308,7 @@ async def start_job(job_id: str, request: Request, user: str = Depends(current_u
     job = _job(job_id, user)
     body = await _json(request)
     job.touch()
-    n = dispatcher.start_job(job, _mode(body.get("mode", job.mode)), body.get("smart") is True)
+    n = dispatcher.start_job(job, _mode(body.get("mode", job.mode)), body.get("smart") is not False)
     if not n:
         raise JobError(409, "nothing_to_process", "There are no new photos to process.")
     return {"queued": n}
@@ -376,25 +376,27 @@ async def download_one(job_id: str, item_id: int, user: str = Depends(current_us
 
 
 @app.get("/api/jobs/{job_id}/download.zip")
-async def download_zip(job_id: str, numbering: int = Query(0), user: str = Depends(current_user)):
-    """`<original root folder>.zip`: same folder name, same sub-folders, same file names, photos in their order."""
+async def download_zip(job_id: str, numbering: int = Query(1), suffix: str = Query(DEFAULT_SUFFIX, max_length=80),
+                       user: str = Depends(current_user)):
+    """`<folder name> <suffix>.zip`: the folder you sent + "after editing", same sub-folders, photos in final order."""
     job = _job(job_id, user)
-    path = await run_in_threadpool(store.build_zip, job, bool(numbering))
+    path = await run_in_threadpool(store.build_zip, job, bool(numbering), suffix)
     job.touch()
 
     def mark() -> None:
         job.downloaded_at = time.time()
         job.bump()
 
-    return FileResponse(path, filename=store.zip_name(job), media_type="application/zip",
+    return FileResponse(path, filename=store.zip_name(job, suffix), media_type="application/zip",
                         headers={"Cache-Control": "private, no-store"}, background=BackgroundTask(mark))
 
 
 @app.get("/api/jobs/{job_id}/log.csv")
-async def download_log(job_id: str, numbering: int = Query(0), user: str = Depends(current_user)):
+async def download_log(job_id: str, numbering: int = Query(1), suffix: str = Query(DEFAULT_SUFFIX, max_length=80),
+                       user: str = Depends(current_user)):
     """Download log: where every original photo went (final name, position, room, excluded and why)."""
     job = _job(job_id, user)
-    data = await run_in_threadpool(store.log_for, job, bool(numbering))
+    data = await run_in_threadpool(store.log_for, job, bool(numbering), suffix)
     job.touch()
     return Response(data, media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": "attachment; filename=\"Roomlit log.csv\"", "Cache-Control": "private, no-store"})

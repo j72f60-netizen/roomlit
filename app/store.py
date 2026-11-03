@@ -35,6 +35,15 @@ from .engine.presets import DEFAULT_MODE, PRESETS
 log = logging.getLogger("roomlit.store")
 
 
+DEFAULT_SUFFIX = "بعد التعديل"          # "after editing": added after the folder name the photos came in
+
+
+def clean_suffix(raw: str | None) -> str:
+    """Text appended to the root folder / ZIP name.  Safe on every file system; empty means nothing is added."""
+    s = re.sub(r'[\x00-\x1f\x7f/\\:*?"<>|]|\.{2,}', " ", raw or "")
+    return unicodedata.normalize("NFC", re.sub(r"\s+", " ", s).strip(" ."))[:40].strip(" .")
+
+
 class JobError(Exception):
     def __init__(self, status: int, code: str, message: str | None = None):
         super().__init__(message or code)
@@ -133,7 +142,7 @@ class Job:
     purged: bool = False
     deleting: bool = False
     organizing: bool = False
-    smart: bool = False              # opt-in: remove same-shot copies and arrange for Airbnb (default: nothing removed or moved)
+    smart: bool = True               # remove same-shot copies and arrange for Airbnb/Booking; False = keep every photo in name order
     ml: bool | None = None           # was the room model available for the last organisation?
     lock: threading.RLock = field(default_factory=threading.RLock)
     zip_lock: threading.Lock = field(default_factory=threading.Lock)
@@ -311,10 +320,11 @@ class JobStore:
 
     def organizer_payload(self, job: Job, pset: PSet) -> dict:
         with job.lock:
+            members = sorted((i for i in job.items.values()
+                               if i.set_id == pset.id and i.status in ("ready", "queued", "done") and i.analysis),
+                             key=lambda i: name_key(i.name, i.id))          # file-name order: ties never depend on arrival
             items = [{"id": i.id, "preview": os.path.join(job.p_preview, f"{i.id}_before.jpg"),
-                      "analysis": i.analysis or {}, "pixels": i.width * i.height}
-                     for i in job.items.values()
-                     if i.set_id == pset.id and i.status in ("ready", "queued", "done") and i.analysis]
+                      "analysis": i.analysis or {}, "pixels": i.width * i.height} for i in members]
         return {"id": pset.id, "items": items}
 
     def apply_organization(self, job: Job, pset: PSet, res: dict | None) -> None:
@@ -518,17 +528,30 @@ class JobStore:
 
     # ------------------------------------------------------------ zip + log
     @staticmethod
-    def zip_name(job: Job) -> str:
+    def zip_name(job: Job, suffix: str = "") -> str:
+        """`<folder name> <suffix>.zip` (one root folder) - the same name the folder inside the ZIP gets."""
         roots = {i.parts[0] for i in job.items.values()}
-        return (next(iter(roots)) if len(roots) == 1 else "Roomlit export") + ".zip"
+        suffix = clean_suffix(suffix)
+        if len(roots) == 1:
+            return f"{next(iter(roots))} {suffix}".strip() + ".zip"
+        return "Roomlit export.zip"
+
+    @staticmethod
+    def _rename_root(rel_dir: str, suffix: str) -> str:
+        if not suffix:
+            return rel_dir
+        first, _, rest = rel_dir.partition("/")
+        return posixpath.join(f"{first} {suffix}", rest) if rest else f"{first} {suffix}"
 
     @staticmethod
     def final_name(item: Item, n: int, digits: int, numbering: bool) -> str:
         base = posixpath.basename(item.out_rel)
         return f"{n:0{digits}d} - {base}" if numbering else base
 
-    def plan_zip(self, job: Job, numbering: bool) -> tuple[list[tuple[str, Item]], list[dict]]:
-        """(zip entries in gallery order, log rows).  Only finished, included photos are delivered."""
+    def plan_zip(self, job: Job, numbering: bool, suffix: str = "") -> tuple[list[tuple[str, Item]], list[dict]]:
+        """(zip entries in gallery order, log rows).  Only finished, included photos are delivered.
+        The root folder is called `<original name> <suffix>`; sub-folders and file names are as uploaded."""
+        suffix = clean_suffix(suffix)
         entries: list[tuple[str, Item]] = []
         rows: list[dict] = []
         with job.lock:
@@ -538,7 +561,7 @@ class JobStore:
                 digits = max(2, len(str(len(deliver))))
                 final: dict[int, tuple[int, str]] = {}
                 for n, it in enumerate(deliver, 1):
-                    arc = posixpath.join(posixpath.dirname(it.out_rel), self.final_name(it, n, digits, numbering))
+                    arc = posixpath.join(self._rename_root(posixpath.dirname(it.out_rel), suffix), self.final_name(it, n, digits, numbering))
                     entries.append((arc, it))
                     final[it.id] = (n, arc)
                 for it in sorted((i for i in job.items.values() if i.set_id == pset.id),
@@ -558,6 +581,7 @@ class JobStore:
                     rows.append({
                         "apartment_folder": pset.key, "final_position": final[it.id][0] if delivered else "",
                         "final_file": final[it.id][1].rsplit("/", 1)[-1] if delivered else "",
+                        "final_path": final[it.id][1] if delivered else "",
                         "original_file": it.name, "original_path": "/".join(it.parts),
                         "room_type": it.room or "", "room_confidence": f"{it.room_conf:.2f}" if it.room else "",
                         "room_set_by_user": "yes" if it.room_user else "no",
@@ -570,7 +594,7 @@ class JobStore:
 
     @staticmethod
     def log_csv(rows: list[dict]) -> bytes:
-        cols = ["apartment_folder", "final_position", "final_file", "original_file", "original_path", "room_type",
+        cols = ["apartment_folder", "final_position", "final_file", "final_path", "original_file", "original_path", "room_type",
                 "room_confidence", "room_set_by_user", "main_photo", "status", "reason", "similar_to", "edit_mode"]
         buf = io.StringIO()
         w = csv.DictWriter(buf, fieldnames=cols)
@@ -578,20 +602,21 @@ class JobStore:
         w.writerows(rows)
         return b"\xef\xbb\xbf" + buf.getvalue().encode("utf-8")       # BOM: Excel shows Arabic names correctly
 
-    def log_for(self, job: Job, numbering: bool = False) -> bytes:
-        return self.log_csv(self.plan_zip(job, numbering)[1])
+    def log_for(self, job: Job, numbering: bool = True, suffix: str = "") -> bytes:
+        return self.log_csv(self.plan_zip(job, numbering, suffix)[1])
 
-    def build_zip(self, job: Job, numbering: bool = False) -> str:
-        """Create (or reuse) the result ZIP: original root + sub-folders, one edited photo per original, same names,
-        original order.  The ZIP holds photos only (the log is a separate download)."""
+    def build_zip(self, job: Job, numbering: bool = True, suffix: str = "") -> str:
+        """Create (or reuse) the result ZIP: `<root> <suffix>/` + original sub-folders, photos in their final order.
+        The ZIP holds photos only (the log is a separate download)."""
+        suffix = clean_suffix(suffix)
         with job.lock:
             if job.organizing or any(i.status in ("queued", "processing") for i in job.items.values()):
                 raise JobError(409, "still_working", "Some photos are still being edited. Download when they are finished.")
         with job.zip_lock:
-            key = (job.edit_version, job.arr_version, numbering)
+            key = (job.edit_version, job.arr_version, numbering, suffix)
             if job.zip_key == key and os.path.exists(job.p_zip):
                 return job.p_zip
-            entries, _ = self.plan_zip(job, numbering)
+            entries, _ = self.plan_zip(job, numbering, suffix)
             if not entries:
                 raise JobError(409, "nothing_to_download", "There are no edited photos to download yet.")
             names = [unicodedata.normalize("NFC", arc).lower() for arc, _ in entries]

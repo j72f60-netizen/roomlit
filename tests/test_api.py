@@ -114,7 +114,7 @@ def test_folder_upload_zip_has_original_names_and_no_edited_words(authed):
              "Al Khuzama/3/x/deep.jpg": jpeg(k=4), "Al Khuzama/3/x/also.jpg": jpeg(k=5)}
     jid, j = run_job(c, files)
     assert j["counts"]["done"] == 5 and j["counts"]["excluded"] == 0 and j["counts"]["final"] == 5
-    r = c.get(f"/api/jobs/{jid}/download.zip")
+    r = c.get(f"/api/jobs/{jid}/download.zip?numbering=0&suffix=")
     assert r.status_code == 200 and "Al%20Khuzama.zip" in r.headers["content-disposition"].replace("filename*=utf-8''", "Al%20Khuzama.zip ") or "Al Khuzama.zip" in r.headers["content-disposition"]
     z = zipfile.ZipFile(io.BytesIO(r.content))
     names = z.namelist()
@@ -126,7 +126,7 @@ def test_folder_upload_zip_has_original_names_and_no_edited_words(authed):
     for n in names:
         assert Image.open(io.BytesIO(z.read(n))).size == (480, 360)
     # numbering is an opt-in extra
-    z2 = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering=1").content))
+    z2 = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering=1&suffix=").content))
     assert sorted(n.split(" - ", 1)[1] for n in z2.namelist()) == sorted(["a.jpg", "B.JPG", "a.jpg", "deep.jpg", "also.jpg"])
     # the log is a separate download and keeps the original names
     log = c.get(f"/api/jobs/{jid}/log.csv").content.decode("utf-8-sig")
@@ -142,7 +142,7 @@ def test_folder_upload_zip_has_original_names_and_no_edited_words(authed):
 def test_same_name_files_in_one_folder_are_both_delivered(authed):
     c = authed
     jid, j = run_job(c, {"R/1/a.jpg": jpeg(k=11), "R/1/A.JPG": jpeg(k=12)})        # case-insensitive clash
-    z = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering=0").content))
+    z = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering=0&suffix=").content))
     names = sorted(z.namelist())
     assert len(names) == 2 and len({n.lower() for n in names}) == 2                      # nothing lost, nothing overwritten
     assert {n for n in names if "(2)" not in n} <= {"R/1/a.jpg", "R/1/A.JPG"}
@@ -163,7 +163,7 @@ def test_zip_upload_keeps_the_zip_folder_name(authed):
     c.post(f"/api/jobs/{jid}/start", json={}, headers=H)
     j = wait(c, jid, lambda j: j["counts"]["done"] == 3)
     assert j["zip_name"] == "Villa Nord.zip"
-    z = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering=0").content))
+    z = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering=0&suffix=").content))
     assert sorted(z.namelist()) == ["Villa Nord/Bedroom/2.jpg", "Villa Nord/Bedroom/3.jpg", "Villa Nord/Living/1.jpg"]
 
 
@@ -171,7 +171,7 @@ def test_loose_files_and_multiple_roots(authed):
     c = authed
     jid, j = run_job(c, {"loose.jpg": jpeg(k=30), "Other Folder/x.jpg": jpeg(k=31)})
     assert j["zip_name"] == "Roomlit export.zip"
-    z = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering=0").content))
+    z = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering=0&suffix=").content))
     assert sorted(z.namelist()) == ["Other Folder/x.jpg", "Photos/loose.jpg"]
 
 

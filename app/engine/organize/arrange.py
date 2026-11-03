@@ -115,7 +115,8 @@ def arrange(items: list[Item]) -> Result:
         stats[(i, j)] = F.compare(items[i].feat, items[j].feat)
 
     # ---- duplicates: greedy by quality; an excluded photo is always a direct match of its keeper (no chains)
-    rank = sorted(range(len(items)), key=lambda k: (-items[k].score, items[k].id))
+    # (items arrive in file-name order, so a tie - or a near-tie - keeps the first-named copy, never a random one)
+    rank = sorted(range(len(items)), key=lambda k: (-round(items[k].score * 20), k))
     assigned: dict[int, int] = {}
     for a in rank:
         if a in assigned:
@@ -202,7 +203,7 @@ def _order(items: list[Item], kept: list[int], res: Result) -> list[int]:
                 def val(k):
                     pen = max((_sim(items[k], c) for c in chosen), default=0.0)
                     return items[k].score - 0.45 * pen
-                nxt = max(left, key=lambda k: (val(k), -items[k].id))
+                nxt = max(left, key=lambda k: (val(k), -k))
                 left.remove(nxt)
                 order.append(nxt)
                 chosen.append(items[nxt])

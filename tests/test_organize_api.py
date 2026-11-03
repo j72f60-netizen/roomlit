@@ -43,7 +43,7 @@ def by_name(j, folder):
 
 
 def zip_names(c, jid, numbering=1):
-    z = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering={numbering}").content))
+    z = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering={numbering}&suffix=").content))
     return z, z.namelist()
 
 

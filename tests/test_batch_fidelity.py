@@ -1,6 +1,6 @@
 """A realistic batch (18 photos, similar-looking ones, tricky names) must come back 1:1, in order, under its own names.
 
-Default behaviour: nothing is removed, nothing is moved, nothing is renamed.  Every check below compares the ZIP /
+Plain mode (Smart organise unticked, numbering off, no suffix): nothing is removed, nothing is moved, nothing is renamed.  Every check below compares the ZIP /
 single downloads against what was uploaded, never against what the app thinks it did.
 """
 import hashlib, io, random, urllib.parse, zipfile
@@ -92,7 +92,7 @@ def test_batch_of_18_comes_back_one_to_one_in_order_under_exact_names(authed):
     r = up(c, jid, "Villa Nord/Unit 1/IMG_001.jpg", files["Villa Nord/Unit 1/IMG_001.jpg"])
     assert r.status_code == 200 and r.json() == {"accepted": 0, "ignored": 0, "duplicate": 1}
     wait(c, jid, lambda j: j["counts"]["ready"] + j["counts"]["failed"] == len(files))
-    assert c.post(f"/api/jobs/{jid}/start", json={"mode": "premium"}, headers=H).status_code == 200      # no smart option
+    assert c.post(f"/api/jobs/{jid}/start", json={"mode": "premium", "smart": False}, headers=H).status_code == 200
     j = wait(c, jid, lambda j: j["phase"] in ("done", "failed") and j["counts"]["queued"] + j["counts"]["processing"] == 0)
 
     # ---- input count = output count, nothing skipped, nothing removed, nothing renamed
@@ -101,7 +101,7 @@ def test_batch_of_18_comes_back_one_to_one_in_order_under_exact_names(authed):
     assert j["already"] == 1 and len(j["items"]) == 18
     assert all(not i["ex"] and not i["renamed"] and i["dup_of"] is None for i in j["items"])
 
-    r = c.get(f"/api/jobs/{jid}/download.zip")
+    r = c.get(f"/api/jobs/{jid}/download.zip?numbering=0&suffix=")
     assert r.status_code == 200
     z = zipfile.ZipFile(io.BytesIO(r.content))
     names = z.namelist()
@@ -150,15 +150,15 @@ def test_a_zip_is_never_built_while_photos_are_still_being_edited(authed):
     for p, d in files.items():
         up(c, jid, p, d)
     wait(c, jid, lambda j: j["counts"]["ready"] == 2)
-    c.post(f"/api/jobs/{jid}/start", json={}, headers=H)
+    c.post(f"/api/jobs/{jid}/start", json={"smart": False}, headers=H)
     wait(c, jid, lambda j: j["counts"]["done"] == 2)
     job = main.store.jobs[jid]
     victim = next(iter(job.items.values()))
     victim.status = "processing"                                                      # as if the editor were still busy with it
-    r = c.get(f"/api/jobs/{jid}/download.zip")
+    r = c.get(f"/api/jobs/{jid}/download.zip?numbering=0&suffix=")
     assert r.status_code == 409 and r.json()["error"] == "still_working"
     victim.status = "done"
-    assert len(zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip").content)).namelist()) == 2
+    assert len(zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering=0&suffix=").content)).namelist()) == 2
     c.delete(f"/api/jobs/{jid}", headers=H)
 
 
@@ -178,15 +178,15 @@ def test_adding_photos_later_keeps_one_output_per_original_in_name_order(authed)
     for n in (3, 1):
         up(c, jid, f"R/1/{n}.jpg", jpg(synth.layout(540 + n, W, HT)))
     wait(c, jid, lambda j: j["counts"]["ready"] == 2)
-    c.post(f"/api/jobs/{jid}/start", json={}, headers=H)
+    c.post(f"/api/jobs/{jid}/start", json={"smart": False}, headers=H)
     wait(c, jid, lambda j: j["counts"]["done"] == 2)
     for n in (10, 2):
         up(c, jid, f"R/1/{n}.jpg", jpg(synth.layout(540 + n, W, HT)))
     up(c, jid, "R/1/1.jpg", jpg(synth.layout(541, W, HT)))                           # the same file again: ignored
     wait(c, jid, lambda j: j["counts"]["ready"] == 2)
-    c.post(f"/api/jobs/{jid}/start", json={}, headers=H)
+    c.post(f"/api/jobs/{jid}/start", json={"smart": False}, headers=H)
     j = wait(c, jid, lambda j: j["counts"]["done"] == 4)
     assert j["counts"]["total"] == 4 and j["already"] == 1
-    assert zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip").content)).namelist() == \
+    assert zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering=0&suffix=").content)).namelist() == \
         ["R/1/1.jpg", "R/1/2.jpg", "R/1/3.jpg", "R/1/10.jpg"]
     c.delete(f"/api/jobs/{jid}", headers=H)
