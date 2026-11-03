@@ -19,7 +19,7 @@ const I18N = {
     jobs_title: 'Your jobs on the server', open: 'Open', photos_n: '{n} photos', min_left: '{m} min left',
     job_heading: '{n} photos', add_more: 'Add more photos', delete_job: 'Delete job',
     confirm_delete: 'Delete this job and all its photos from the server?',
-    start: 'Organize and edit {n} photos', start_one: 'Organize and edit 1 photo',
+    start: 'Edit {n} photos', start_one: 'Edit 1 photo',
     uploading: 'Uploading {done} of {total}…', upload_done: 'Upload complete',
     preparing: 'Preparing {n} photos…', processing: 'Editing: {done} of {total} done', all_done: 'All photos edited',
     s_uploaded: 'Waiting', s_analyzing: 'Preparing', s_ready: 'Ready', s_queued: 'Queued', s_processing: 'Editing…', s_done: 'Done', s_failed: 'Failed',
@@ -40,12 +40,15 @@ const I18N = {
     deleted: 'Job deleted from the server.', reprocess_queued: 'Re-editing queued.',
     outpath: 'Saved as', unit_s: 's',
     c_original: 'Original {n}', c_final: 'Final {n}', c_excluded: 'Excluded {n}', c_failed: 'Failed {n}',
-    organizing: 'Organizing photos (duplicates, rooms, order)…',
+    organizing: 'Getting the photos ready…',
     main_photo: 'Main photo', make_main: 'Make main photo', make_main_s: 'Make main', exclude: 'Exclude', restore: 'Restore',
     excluded_title: 'Excluded photos ({n})', ex_dup: 'Same shot as {name}: the better photo was kept', ex_user: 'Excluded by you',
     similar: 'Similar to another photo', unsure: 'Unsure', suggested_room: 'Suggested room: please check',
-    drag_hint: 'Drag photos to change the order. Photo 1 is the main photo.', reset_order: 'Suggested order', arranged_by_you: 'Arranged by you',
-    pending_new: 'New photos (not arranged yet)', numbering: 'Number files in gallery order (01 - name)',
+    drag_hint: 'Photos stay in file-name order. Drag to change it; photo 1 is the main photo.', reset_order: 'Suggested order', arranged_by_you: 'Arranged by you',
+    pending_new: 'New photos (not arranged yet)', numbering: 'Add a number before each file name (01 - name). Off keeps the exact original names.',
+    smart: 'Smart organise (optional)', smart_hint: 'Removes near-identical copies of the same shot and arranges the gallery for Airbnb. Off: every photo is kept, in the same order, with its exact file name.',
+    reset_order_plain: 'Original order', already_n: '{n} photo(s) were already in this job and were not added a second time.',
+    renamed_n: '{n} files had exactly the same path as a different file, so they got “(2)” in their name.', renamed_hint: 'Same path as another file, saved as: {name}',
     dl_zip: 'Download {name}', dl_log: 'Download log', earlier: 'Move earlier', later: 'Move later',
     ml_off: 'Room detection was not available, so photos stay in upload order. You can set each room type by hand.',
     compare_excluded: 'This photo is excluded, so it was not edited. Restore it to edit and include it.',
@@ -70,7 +73,7 @@ const I18N = {
     jobs_title: 'مهامك على الخادم', open: 'فتح', photos_n: '{n} صورة', min_left: 'متبقي {m} دقيقة',
     job_heading: '{n} صورة', add_more: 'إضافة صور', delete_job: 'حذف المهمة',
     confirm_delete: 'هل تريد حذف هذه المهمة وجميع صورها من الخادم؟',
-    start: 'نظّم وحرّر {n} صورة', start_one: 'نظّم وحرّر صورة واحدة',
+    start: 'حرّر {n} صورة', start_one: 'حرّر صورة واحدة',
     uploading: 'جارٍ الرفع {done} من {total}…', upload_done: 'اكتمل الرفع',
     preparing: 'جارٍ تحضير {n} صورة…', processing: 'جارٍ التحرير: اكتمل {done} من {total}', all_done: 'تم تحرير جميع الصور',
     s_uploaded: 'بالانتظار', s_analyzing: 'قيد التحضير', s_ready: 'جاهزة', s_queued: 'في الطابور', s_processing: 'جارٍ التحرير…', s_done: 'تم', s_failed: 'فشل',
@@ -91,12 +94,15 @@ const I18N = {
     deleted: 'تم حذف المهمة من الخادم.', reprocess_queued: 'تمت إضافة إعادة التحرير إلى الطابور.',
     outpath: 'يُحفظ باسم', unit_s: 'ث',
     c_original: 'الأصلية {n}', c_final: 'النهائية {n}', c_excluded: 'المستبعدة {n}', c_failed: 'الفاشلة {n}',
-    organizing: 'جارٍ تنظيم الصور (التكرار، الغرف، الترتيب)…',
+    organizing: 'جارٍ تجهيز الصور…',
     main_photo: 'الصورة الرئيسية', make_main: 'اجعلها الصورة الرئيسية', make_main_s: 'اجعلها رئيسية', exclude: 'استبعاد', restore: 'استعادة',
     excluded_title: 'الصور المستبعدة ({n})', ex_dup: 'نفس اللقطة مثل {name}: احتُفظ بالأفضل', ex_user: 'استبعدتها أنت',
     similar: 'تشبه صورة أخرى', unsure: 'غير مؤكد', suggested_room: 'غرفة مقترحة: يُرجى التأكد',
-    drag_hint: 'اسحب الصور لتغيير الترتيب. الصورة رقم 1 هي الرئيسية.', reset_order: 'الترتيب المقترح', arranged_by_you: 'رتّبتها أنت',
-    pending_new: 'صور جديدة (لم تُرتّب بعد)', numbering: 'ترقيم الملفات حسب ترتيب المعرض (01 - الاسم)',
+    drag_hint: 'تبقى الصور بترتيب أسماء الملفات. اسحب لتغيير الترتيب؛ الصورة رقم 1 هي الرئيسية.', reset_order: 'الترتيب المقترح', arranged_by_you: 'رتّبتها أنت',
+    pending_new: 'صور جديدة (لم تُرتّب بعد)', numbering: 'إضافة رقم قبل اسم كل ملف (01 - الاسم). عند الإيقاف تبقى الأسماء الأصلية كما هي.',
+    smart: 'تنظيم ذكي (اختياري)', smart_hint: 'يستبعد النسخ شبه المتطابقة من اللقطة نفسها ويرتّب المعرض لـ Airbnb. عند الإيقاف: تبقى كل الصور بنفس الترتيب وبأسمائها الأصلية تمامًا.',
+    reset_order_plain: 'الترتيب الأصلي', already_n: '{n} صورة كانت موجودة في هذه المهمة ولم تُضَف مرة ثانية.',
+    renamed_n: '{n} ملف له المسار نفسه تمامًا لملف مختلف، فأُضيفت «(2)» إلى اسمه.', renamed_hint: 'نفس مسار ملف آخر، حُفظ باسم: {name}',
     dl_zip: 'تحميل {name}', dl_log: 'تحميل السجل', earlier: 'قدّم', later: 'أخّر',
     ml_off: 'تعذّر التعرف على نوع الغرف، فبقيت الصور بترتيب الرفع. يمكنك تحديد نوع كل غرفة يدويًا.',
     compare_excluded: 'هذه الصورة مستبعدة ولذلك لم تُعدَّل. استعدها لتعديلها وإدراجها.',
@@ -149,7 +155,8 @@ const fmtMB = (b) => (b / 1e6 >= 10 ? Math.round(b / 1e6) : (b / 1e6).toFixed(1)
 /* ------------------------------------------------------------------ state */
 const S = { cfg: null, job: null, rev: 0, mode: 'premium', timer: null, sig: '', cards: new Map(), modalId: null,
   up: null, clickedZip: false, clientIgnored: 0, user: null, drag: null,
-  numbering: (() => { try { return localStorage.getItem('rl_num') !== '0'; } catch { return true; } })(), openEx: {} };
+  numbering: (() => { try { return localStorage.getItem('rl_num2') === '1'; } catch { return false; } })(),
+  smart: (() => { try { return localStorage.getItem('rl_smart') === '1'; } catch { return false; } })(), openEx: {} };
 const ALLOWED = new Set(['.jpg', '.jpeg', '.png', '.webp', '.tif', '.tiff', '.heic', '.heif']);
 const extOf = (n) => { const i = n.lastIndexOf('.'); return i < 0 ? '' : n.slice(i).toLowerCase(); };
 const isJunk = (p) => p.split('/').some((c) => c.startsWith('.') || c.toLowerCase() === '__macosx') || /(^|\/)(thumbs\.db|desktop\.ini)$/i.test(p);
@@ -380,10 +387,11 @@ function renderJob() {
   bStart.classList.toggle('hidden', !(toStart > 0 && !working && !org));
   bStart.textContent = toStart === 1 ? t('start_one') : t('start', { n: toStart });
   bStart.disabled = !!S.up;
+  const sm = $('#smart-row'); sm.classList.toggle('hidden', !(toStart > 0 && !working && !org)); $('#smart').checked = S.smart;
   const zip = $('#btn-zip'), canZip = c.done > 0, num = S.numbering ? 1 : 0;
   zip.classList.toggle('hidden', !canZip); zip.href = '/api/jobs/' + j.id + '/download.zip?numbering=' + num; zip.textContent = t('dl_zip', { name: j.zip_name });
   zip.setAttribute('aria-disabled', working || org ? 'true' : 'false');
-  const lg = $('#btn-log'); lg.classList.toggle('hidden', !j.sets.some((x) => x.organized)); lg.href = '/api/jobs/' + j.id + '/log.csv?numbering=' + num;
+  const lg = $('#btn-log'); lg.classList.toggle('hidden', !canZip); lg.href = '/api/jobs/' + j.id + '/log.csv?numbering=' + num;
   $('#numbering-row').classList.toggle('hidden', !canZip); $('#numbering').checked = S.numbering;
 
   const pg = $('#progress'), bar = $('#bar'); bar.classList.toggle('indet', org);
@@ -403,8 +411,10 @@ function renderJob() {
   const notes = $('#notes'); notes.replaceChildren();
   const ign = j.ignored_total + S.clientIgnored;
   if (ign) notes.append(h('div', { class: 'note' }, t('ignored', { n: ign })));
+  if (j.already) notes.append(h('div', { class: 'note' }, t('already_n', { n: j.already })));
+  if (c.renamed) notes.append(h('div', { class: 'note warn' }, t('renamed_n', { n: c.renamed })));
   if (c.failed) notes.append(h('div', { class: 'note bad' }, t('failed_n', { n: c.failed })));
-  if (j.ml === false && j.sets.some((x) => x.organized)) notes.append(h('div', { class: 'note warn' }, t('ml_off')));
+  if (j.smart && j.ml === false && j.sets.some((x) => x.organized)) notes.append(h('div', { class: 'note warn' }, t('ml_off')));
   renderSets(j);
   if (S.modalId != null) renderModal();
 }
@@ -456,7 +466,8 @@ function updateCard(c, it, kind, idx, total) {
     const unsure = !it.room_sure && !it.room_user;
     c.room.classList.toggle('unsure', unsure); c.room.title = unsure ? t('suggested_room') : t('room_label');
   }
-  const why = kind === 'excluded' ? (it.ex_why === 'dup' ? t('ex_dup', { name: (itemById(it.dup_of) || {}).name || '' }) : t('ex_user')) : '';
+  const why = kind === 'excluded' ? (it.ex_why === 'dup' ? t('ex_dup', { name: (itemById(it.dup_of) || {}).name || '' }) : t('ex_user'))
+    : (it.renamed ? t('renamed_hint', { name: it.out.split('/').pop() }) : '');
   c.why.textContent = why; c.why.classList.toggle('hidden', !why);
   c.bMain.classList.toggle('hidden', !(kind === 'arranged' && idx > 0));
   c.bPrev.classList.toggle('hidden', !(kind === 'arranged' && idx > 0)); c.bNext.classList.toggle('hidden', !(kind === 'arranged' && idx < total - 1));
@@ -488,7 +499,7 @@ function renderSets(j) {
       const root = j.roots.length > 1 ? s.key.split('/')[0] : null;
       const head = h('div', { class: 'sethead' }, h('h3', {}, s.label, root ? h('small', {}, root) : null,
         s.organized ? h('span', { class: 'chip' }, t('c_final', { n: arranged.length })) : null, s.manual ? h('span', { class: 'chip work' }, t('arranged_by_you')) : null));
-      if (s.organized && arranged.length) head.append(h('button', { class: 'btn sm', type: 'button', onclick: () => act('/sets/' + s.id + '/reset-order') }, t('reset_order')));
+      if (s.organized && arranged.length) head.append(h('button', { class: 'btn sm', type: 'button', onclick: () => act('/sets/' + s.id + '/reset-order') }, t(j.smart ? 'reset_order' : 'reset_order_plain')));
       sec.append(head);
       if (arranged.length) {
         sec.append(h('p', { class: 'hint' }, t('drag_hint')));
@@ -563,10 +574,11 @@ async function act(path, body) {
 
 /* ------------------------------------------------------------------ job actions */
 $('#btn-start').addEventListener('click', async () => {
-  try { await api('/jobs/' + S.job.id + '/start', { method: 'POST', body: { mode: S.mode } }); await poll(true); } catch (e) { toast(errText(e), true); }
+  try { await api('/jobs/' + S.job.id + '/start', { method: 'POST', body: { mode: S.mode, smart: S.smart } }); await poll(true); } catch (e) { toast(errText(e), true); }
 });
 $('#btn-zip').addEventListener('click', (e) => { if ($('#btn-zip').getAttribute('aria-disabled') === 'true') { e.preventDefault(); return; } S.clickedZip = true; setTimeout(() => $('#banner-dl').classList.remove('hidden'), 600); });
-$('#numbering').addEventListener('change', (e) => { S.numbering = e.target.checked; try { localStorage.setItem('rl_num', S.numbering ? '1' : '0'); } catch { /* */ } renderJob(); });
+$('#numbering').addEventListener('change', (e) => { S.numbering = e.target.checked; try { localStorage.setItem('rl_num2', S.numbering ? '1' : '0'); } catch { /* */ } renderJob(); });
+$('#smart').addEventListener('change', (e) => { S.smart = e.target.checked; try { localStorage.setItem('rl_smart', S.smart ? '1' : '0'); } catch { /* */ } });
 $('#btn-delete').addEventListener('click', () => removeJob(S.job.id));
 $('#btn-delete-now').addEventListener('click', () => removeJob(S.job.id));
 $('#btn-reedit-all').addEventListener('click', async () => {

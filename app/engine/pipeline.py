@@ -51,10 +51,12 @@ def group_params(analyses: list[dict]) -> dict:
 
 
 def process_file(src: str, dst: str, preview_dir: str, item_id: int, mode: str,
-                 group_wb: tuple[float, float, float] | None, max_pixels: int) -> dict:
+                 group_wb: tuple[float, float, float] | None, max_pixels: int, container: str | None = None) -> dict:
     t0 = time.perf_counter()
     preset = get_preset(mode)
     meta = imageio.inspect(src, max_pixels)
+    if container:                      # the edited file is written in the format its (unchanged) name promises
+        meta.out_ext = container
     img = imageio.load_bgr(src, meta)
     h, w = img.shape[:2]
     an = analyze_bgr(img)

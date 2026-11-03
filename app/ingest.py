@@ -7,6 +7,7 @@ climb out of its folder.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import posixpath
 import re
@@ -99,17 +100,19 @@ def group_of(parts: list[str]) -> str:
     return "/".join(parts[:-1])
 
 
-def out_ext_for(name: str) -> str | None:
-    """Extension the edited file must have, or None to keep the original name exactly (e.g. 'IMG.JPG')."""
-    return ".jpg" if ext_of(name) in (".heic", ".heif") else None
+_CONTAINER = {".jpg": ".jpg", ".jpeg": ".jpg", ".png": ".png", ".webp": ".webp", ".tif": ".tif", ".tiff": ".tif",
+              ".heic": ".heic", ".heif": ".heic"}
 
 
-def out_rel_for(parts: list[str], ext: str | None = None) -> str:
-    """Where the edited photo lives in the ZIP: exactly where it was uploaded (extension changes only if forced)."""
-    *dirs, name = parts
-    if ext is not None:
-        name = os.path.splitext(name)[0] + ext
-    return posixpath.join(*dirs, name)
+def container_for(name: str) -> str:
+    """File format the edited photo is written in: always the one the file name promises, so the name never has to change
+    (a JPEG that was named 'x.png' comes back as a real PNG called 'x.png')."""
+    return _CONTAINER.get(ext_of(name), ".jpg")
+
+
+def out_rel_for(parts: list[str]) -> str:
+    """Where the edited photo lives in the ZIP: exactly where it was uploaded, under its own name."""
+    return posixpath.join(*parts)
 
 
 def dedupe(rel: str, taken: set[str]) -> str:
@@ -136,6 +139,7 @@ class ZipEntryResult:
     parts: list[str]
     tmp_path: str
     size: int
+    sha: str = ""
 
 
 def _decode_name(info: zipfile.ZipInfo) -> str:
@@ -219,6 +223,7 @@ def extract_zip(
         for info, parts in cands:
             tmp = new_tmp()
             size = 0
+            digest = hashlib.sha256()
             try:
                 with zf.open(info) as src, open(tmp, "wb") as dst:
                     while True:
@@ -229,6 +234,7 @@ def extract_zip(
                         written += len(chunk)
                         if size > max_file_bytes or written > max_total_bytes:
                             raise ZipRejected("The ZIP expands to more data than allowed")
+                        digest.update(chunk)
                         dst.write(chunk)
             except ZipRejected:
                 _rm(tmp)
@@ -239,7 +245,7 @@ def extract_zip(
                 _rm(tmp)
                 ignored["unsafe"] += 1
                 continue
-            out.append(ZipEntryResult(prefix + parts, tmp, size))
+            out.append(ZipEntryResult(prefix + parts, tmp, size, digest.hexdigest()))
     return out, ignored
 
 

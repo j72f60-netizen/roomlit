@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import shutil
@@ -241,6 +242,7 @@ async def upload(job_id: str, request: Request, path: str = Query(..., max_lengt
 
     tmp = store.new_tmp_path(job)
     size = 0
+    digest = hashlib.sha256()
     try:
         with open(tmp, "wb") as f:
             buf = bytearray()
@@ -248,6 +250,7 @@ async def upload(job_id: str, request: Request, path: str = Query(..., max_lengt
                 size += len(chunk)
                 if size > limit:
                     raise JobError(413, "file_too_large", f"This file is larger than the {limit // 1_000_000} MB limit.")
+                digest.update(chunk)
                 buf += chunk
                 if len(buf) >= (1 << 20):
                     await run_in_threadpool(f.write, bytes(buf))
@@ -272,14 +275,18 @@ async def upload(job_id: str, request: Request, path: str = Query(..., max_lengt
             raise JobError(400, "zip_rejected", str(e))
         finally:
             ingest._rm(tmp)
-        accepted = 0
+        accepted = same = done = 0
         try:
             for ent in entries:
-                it = store.add_item(job, ent.parts, ent.tmp_path, ent.size)
+                it = store.add_item(job, ent.parts, ent.tmp_path, ent.size, ent.sha)
+                done += 1
+                if it is None:
+                    same += 1
+                    continue
                 dispatcher.enqueue_analyze(job, it)
                 accepted += 1
         except JobError:
-            for ent in entries[accepted:]:
+            for ent in entries[done:]:
                 ingest._rm(ent.tmp_path)
             raise
         with job.lock:
@@ -287,9 +294,11 @@ async def upload(job_id: str, request: Request, path: str = Query(..., max_lengt
                 if v:
                     job.ignored[k] = job.ignored.get(k, 0) + v
             job.bump()
-        return {"accepted": accepted, "ignored": sum(ignored.values())}
+        return {"accepted": accepted, "ignored": sum(ignored.values()), "duplicate": same}
 
-    item = store.add_item(job, parts, tmp, size)
+    item = store.add_item(job, parts, tmp, size, digest.hexdigest())
+    if item is None:                      # the very same file again (retry / folder added twice): never a second photo
+        return {"accepted": 0, "ignored": 0, "duplicate": 1}
     dispatcher.enqueue_analyze(job, item)
     return {"accepted": 1, "ignored": 0, "id": item.id}
 
@@ -299,7 +308,7 @@ async def start_job(job_id: str, request: Request, user: str = Depends(current_u
     job = _job(job_id, user)
     body = await _json(request)
     job.touch()
-    n = dispatcher.start_job(job, _mode(body.get("mode", job.mode)))
+    n = dispatcher.start_job(job, _mode(body.get("mode", job.mode)), body.get("smart") is True)
     if not n:
         raise JobError(409, "nothing_to_process", "There are no new photos to process.")
     return {"queued": n}
@@ -367,8 +376,8 @@ async def download_one(job_id: str, item_id: int, user: str = Depends(current_us
 
 
 @app.get("/api/jobs/{job_id}/download.zip")
-async def download_zip(job_id: str, numbering: int = Query(1), user: str = Depends(current_user)):
-    """`<original root folder>.zip`: same folder name, same sub-folders, photos in gallery order."""
+async def download_zip(job_id: str, numbering: int = Query(0), user: str = Depends(current_user)):
+    """`<original root folder>.zip`: same folder name, same sub-folders, same file names, photos in their order."""
     job = _job(job_id, user)
     path = await run_in_threadpool(store.build_zip, job, bool(numbering))
     job.touch()
@@ -382,7 +391,7 @@ async def download_zip(job_id: str, numbering: int = Query(1), user: str = Depen
 
 
 @app.get("/api/jobs/{job_id}/log.csv")
-async def download_log(job_id: str, numbering: int = Query(1), user: str = Depends(current_user)):
+async def download_log(job_id: str, numbering: int = Query(0), user: str = Depends(current_user)):
     """Download log: where every original photo went (final name, position, room, excluded and why)."""
     job = _job(job_id, user)
     data = await run_in_threadpool(store.log_for, job, bool(numbering))

@@ -28,7 +28,19 @@ Never: crop, rotate, resize, add/remove/replace objects, recolour furniture, hid
 Modes: **Natural** (subtle), **Premium Airbnb** (default), **Bright & Clean**.
 Photos in the **same folder** are one apartment: they share a brightness target and a colour-cast fallback so they look consistent.
 
-## Smart organisation (after editing, before download)
+## One photo in, one photo out (default)
+
+Out of the box nothing is removed, moved or renamed:
+
+* every uploaded file produces **exactly one** edited file (similar-looking and even byte-identical photos stay separate);
+* the order is the file-manager order of the names, folder by folder (`IMG_2` before `IMG_10`, `IMG_1.jpg` before
+  `IMG_1 copy.jpg`), whatever order the files arrived in;
+* the edited file keeps its **exact name and extension** and is written in the format that name promises
+  (`.jpg`/`.jpeg` JPEG, `.png` PNG, `.webp` WebP, `.tif`/`.tiff` TIFF, `.heic`/`.heif` HEIC);
+* the same file arriving twice (retried upload, folder added again) is ignored, never duplicated;
+* only two *different* photos with the very same path cannot both keep the name; the second gets ` (2)` and is flagged.
+
+## Smart organisation (optional - tick "Smart organise" before editing)
 
 Per **apartment** (= the folder that directly contains the photos; folders are never merged):
 
@@ -46,10 +58,11 @@ Per **apartment** (= the folder that directly contains the photos; folders are n
 
 ## Download
 
-`<original folder name>.zip` -> `<original folder name>/<same sub-folders>/NN - <original file name>.jpg` (the numbers
-keep the gallery order when you drag the files into Airbnb; switch them off to keep the exact original names) and
-`Roomlit log.csv` (original name, final name, position, room type, main photo, excluded + why). No "Edited" / "Airbnb"
-words are ever added to folder names. HEIC is delivered as JPG. Duplicate file names get ` (2)`, ` (3)`.
+`<original folder name>.zip` -> `<original folder name>/<same sub-folders>/<original file name>` in the original order,
+photos only. "Add a number before each file name" (off by default) writes `NN - <name>` instead, to keep a gallery order
+when dragging the files into Airbnb. `Download log` is a separate CSV (original name, final name, position, room type,
+main photo, excluded + why). No "Edited" / "Airbnb" words are ever added to folder names. The ZIP is refused while
+photos are still being edited, so it can never be a partial result by accident.
 
 ## Privacy and safety model
 

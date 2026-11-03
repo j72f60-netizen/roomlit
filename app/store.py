@@ -34,8 +34,6 @@ from .engine.presets import DEFAULT_MODE, PRESETS
 
 log = logging.getLogger("roomlit.store")
 
-LOG_NAME = "Roomlit log.csv"
-
 
 class JobError(Exception):
     def __init__(self, status: int, code: str, message: str | None = None):
@@ -76,10 +74,16 @@ class Item:
     auto_excluded: bool = False      # a better photo of the same shot exists
     dup_of: int | None = None
     user_state: str | None = None    # 'keep' (restored) | 'exclude' (removed by the user)
+    sha: str = ""                    # SHA-256 of the uploaded bytes (recognises the very same file arriving twice)
 
     @property
     def name(self) -> str:
         return self.parts[-1]
+
+    @property
+    def renamed(self) -> bool:
+        """True only when two *different* files had the same path, so one of them could not keep its exact name."""
+        return posixpath.basename(self.out_rel) != self.name
 
     @property
     def excluded(self) -> bool:
@@ -129,6 +133,7 @@ class Job:
     purged: bool = False
     deleting: bool = False
     organizing: bool = False
+    smart: bool = False              # opt-in: remove same-shot copies and arrange for Airbnb (default: nothing removed or moved)
     ml: bool | None = None           # was the room model available for the last organisation?
     lock: threading.RLock = field(default_factory=threading.RLock)
     zip_lock: threading.Lock = field(default_factory=threading.Lock)
@@ -168,6 +173,13 @@ def _rm(p: str) -> None:
 
 def natural_key(s: str):
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
+
+
+def name_key(name: str, ident: int = 0):
+    """File-manager order: numbers count as numbers (IMG_2 before IMG_10) and the name is compared before the
+    extension (IMG_1.jpg before IMG_1 copy.jpg).  Fully deterministic: it never depends on upload timing."""
+    stem, ext = os.path.splitext(name)
+    return (natural_key(stem), natural_key(ext), name, ident)
 
 
 class JobStore:
@@ -240,12 +252,23 @@ class JobStore:
         return os.path.join(job.p_tmp, secrets.token_hex(12))
 
     # ------------------------------------------------------------ items
-    def add_item(self, job: Job, parts: list[str], tmp_path: str, size: int) -> Item:
-        """Register a validated photo.  Moves `tmp_path` into the job as an opaque file name."""
+    def add_item(self, job: Job, parts: list[str], tmp_path: str, size: int, sha: str = "") -> Item | None:
+        """Register a validated photo.  Moves `tmp_path` into the job as an opaque file name.
+
+        Returns None when this very file (same path, same bytes) is already in the job: a retried request or the same
+        folder added twice must never create a second photo."""
         with job.lock:
             if job.deleting:
                 _rm(tmp_path)
                 raise JobError(404, "job_not_found")
+            if sha:
+                path_key = unicodedata.normalize("NFC", "/".join(ingest.with_root(parts))).lower()
+                for other in job.items.values():
+                    if other.sha == sha and unicodedata.normalize("NFC", "/".join(other.parts)).lower() == path_key:
+                        _rm(tmp_path)
+                        job.ignored["same_file"] = job.ignored.get("same_file", 0) + 1
+                        job.bump()
+                        return None
             if len(job.items) >= self.cfg.max_files_per_job:
                 _rm(tmp_path)
                 raise JobError(413, "too_many_files",
@@ -264,8 +287,8 @@ class JobStore:
                 job.next_set += 1
                 job.set_by_key[group] = sid
                 job.sets[sid] = PSet(id=sid, key=group)
-            out = ingest.dedupe(ingest.out_rel_for(parts, ingest.out_ext_for(parts[-1])), job.taken)
-            item = Item(id=item_id, parts=parts, size=size, group=group, out_rel=out, set_id=sid)
+            out = ingest.dedupe(ingest.out_rel_for(parts), job.taken)
+            item = Item(id=item_id, parts=parts, size=size, group=group, out_rel=out, set_id=sid, sha=sha)
             os.replace(tmp_path, job.p_original(item_id))
             job.items[item_id] = item
             job.bytes_total += size
@@ -279,16 +302,6 @@ class JobStore:
         _rm(job.p_edited(item.id))
         for kind in ("before", "after", "thumb"):
             _rm(os.path.join(job.p_preview, f"{item.id}_{kind}.jpg"))
-
-    def retarget_ext(self, job: Job, item: Item, out_ext: str) -> None:
-        """The decoded format decides the output extension (e.g. a JPEG that was named .png)."""
-        cur = os.path.splitext(item.out_rel)[1].lower()
-        same = {".jpg": {".jpg", ".jpeg"}, ".png": {".png"}, ".webp": {".webp"}, ".tif": {".tif", ".tiff"}}
-        if cur in same.get(out_ext, {out_ext}):
-            return
-        with job.lock:
-            job.taken.discard(unicodedata.normalize("NFC", item.out_rel).lower())
-            item.out_rel = ingest.dedupe(ingest.out_rel_for(item.parts, out_ext), job.taken)
 
     # ------------------------------------------------------------ organisation
     def sets_needing_organization(self, job: Job) -> list[PSet]:
@@ -314,7 +327,7 @@ class JobStore:
                     it.auto_excluded = False
                     it.dup_of = None
                 if not pset.manual:
-                    pset.order = [i.id for i in sorted((m for m in members if m.included), key=lambda i: natural_key(i.name))]
+                    pset.order = [i.id for i in sorted((m for m in members if m.included), key=lambda i: name_key(i.name, i.id))]
                 self._fix_order(job, pset)
                 pset.organized = True
                 job.arr_version += 1
@@ -356,7 +369,7 @@ class JobStore:
         order = [i for i in pset.order if i in inc_ids]
         have = set(order)
         pref_rank = {i: n for n, i in enumerate(preferred or [])}
-        for it in sorted((i for i in inc if i.id not in have), key=lambda i: (pref_rank.get(i.id, 10 ** 6), natural_key(i.name))):
+        for it in sorted((i for i in inc if i.id not in have), key=lambda i: (pref_rank.get(i.id, 10 ** 6), name_key(i.name, i.id))):
             if it.dup_of in order and it.user_state == "keep":
                 order.insert(order.index(it.dup_of) + 1, it.id)      # a restored duplicate goes right after its twin
             else:
@@ -417,12 +430,15 @@ class JobStore:
             job.bump()
 
     def reset_order(self, job: Job, pset: PSet) -> None:
-        """Suggested order again (reflects any room labels the user corrected)."""
+        """Original (file-name) order, or in smart mode the suggested Airbnb order (reflects corrected room labels)."""
         with job.lock:
             inc = [i for i in job.items.values() if i.set_id == pset.id and i.included]
-            pset.order = ordering.simple_order([
-                {"id": i.id, "label": i.room or "other", "sure": i.room_sure, "score": i.score,
-                 "appeal": i.appeal, "group": i.room_group} for i in inc])
+            if not job.smart:                                  # plain mode: back to file-name order, nothing arranged
+                pset.order = [i.id for i in sorted(inc, key=lambda i: name_key(i.name, i.id))]
+            else:
+                pset.order = ordering.simple_order([
+                    {"id": i.id, "label": i.room or "other", "sure": i.room_sure, "score": i.score,
+                     "appeal": i.appeal, "group": i.room_group} for i in inc])
             pset.manual = False
             job.arr_version += 1
             job.bump()
@@ -450,12 +466,13 @@ class JobStore:
             counts["to_start"] = to_start
             counts["excluded"] = sum(1 for i in job.items.values() if i.excluded and i.status != "failed")
             counts["final"] = sum(1 for i in job.items.values() if i.included)
+            counts["renamed"] = sum(1 for i in job.items.values() if i.renamed)
             pos: dict[int, int] = {}
             for s in job.sets.values():
                 for n, iid in enumerate(s.order, 1):
                     pos[iid] = n
             items = []
-            for it in sorted(job.items.values(), key=lambda i: (natural_key(i.group), pos.get(i.id, 10 ** 6), natural_key(i.name), i.id)):
+            for it in sorted(job.items.values(), key=lambda i: (natural_key(i.group), pos.get(i.id, 10 ** 6), name_key(i.name, i.id))):
                 items.append({
                     "id": it.id, "name": it.name, "dir": it.group, "set": it.set_id, "status": it.status,
                     "mode": it.mode, "w": it.width, "h": it.height, "err": it.error,
@@ -467,7 +484,7 @@ class JobStore:
                     "restored": it.user_state == "keep",
                     "room": it.room, "room_conf": round(it.room_conf, 2), "room_sure": it.room_sure,
                     "room_alts": it.room_alts, "room_user": it.room_user,
-                    "similar": it.similar, "org": it.organized,
+                    "similar": it.similar, "org": it.organized, "renamed": it.renamed,
                 })
             sets = [{"id": s.id, "key": s.key, "label": s.label, "organized": s.organized, "manual": s.manual,
                      "order": list(s.order)} for s in sorted(job.sets.values(), key=lambda s: natural_key(s.key))]
@@ -487,7 +504,8 @@ class JobStore:
             roots = sorted({i.parts[0] for i in job.items.values()}, key=natural_key)
             return {
                 "id": job.id, "rev": job.rev, "mode": job.mode, "phase": phase, "counts": counts,
-                "ignored": dict(job.ignored), "ignored_total": sum(job.ignored.values()),
+                "ignored": dict(job.ignored), "already": job.ignored.get("same_file", 0),
+                "ignored_total": sum(v for k, v in job.ignored.items() if k != "same_file"), "smart": job.smart,
                 "expires_in": self.expires_in(job), "downloaded": bool(job.downloaded_at),
                 "purged": job.purged, "created": int(job.created), "items": items, "sets": sets,
                 "roots": roots, "zip_name": self.zip_name(job), "ml": job.ml, "rooms": CLASSES,
@@ -524,7 +542,7 @@ class JobStore:
                     entries.append((arc, it))
                     final[it.id] = (n, arc)
                 for it in sorted((i for i in job.items.values() if i.set_id == pset.id),
-                                 key=lambda i: (final.get(i.id, (10 ** 6,))[0], natural_key(i.name))):
+                                 key=lambda i: (final.get(i.id, (10 ** 6,))[0], name_key(i.name, i.id))):
                     delivered = it.id in final
                     if it.status == "failed":
                         status, why = "failed", it.error or ""
@@ -560,25 +578,29 @@ class JobStore:
         w.writerows(rows)
         return b"\xef\xbb\xbf" + buf.getvalue().encode("utf-8")       # BOM: Excel shows Arabic names correctly
 
-    def log_for(self, job: Job, numbering: bool = True) -> bytes:
+    def log_for(self, job: Job, numbering: bool = False) -> bytes:
         return self.log_csv(self.plan_zip(job, numbering)[1])
 
-    def build_zip(self, job: Job, numbering: bool = True) -> str:
-        """Create (or reuse) the organised result ZIP: original root + sub-folders, photos in gallery order."""
+    def build_zip(self, job: Job, numbering: bool = False) -> str:
+        """Create (or reuse) the result ZIP: original root + sub-folders, one edited photo per original, same names,
+        original order.  The ZIP holds photos only (the log is a separate download)."""
+        with job.lock:
+            if job.organizing or any(i.status in ("queued", "processing") for i in job.items.values()):
+                raise JobError(409, "still_working", "Some photos are still being edited. Download when they are finished.")
         with job.zip_lock:
             key = (job.edit_version, job.arr_version, numbering)
             if job.zip_key == key and os.path.exists(job.p_zip):
                 return job.p_zip
-            entries, rows = self.plan_zip(job, numbering)
+            entries, _ = self.plan_zip(job, numbering)
             if not entries:
                 raise JobError(409, "nothing_to_download", "There are no edited photos to download yet.")
-            roots = sorted({i.parts[0] for i in job.items.values()}, key=natural_key)
-            log_arc = posixpath.join(roots[0], LOG_NAME) if len(roots) == 1 else LOG_NAME
+            names = [unicodedata.normalize("NFC", arc).lower() for arc, _ in entries]
+            if len(set(names)) != len(names) or len({it.id for _, it in entries}) != len(entries):
+                raise JobError(500, "zip_inconsistent", "Could not build the ZIP safely. Please re-edit and try again.")
             tmp = job.p_zip + ".part"
             with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
                 for arc, it in entries:
                     zf.write(job.p_edited(it.id), arc)
-                zf.writestr(log_arc, self.log_csv(rows))
             os.replace(tmp, job.p_zip)
             job.zip_key = key
             return job.p_zip

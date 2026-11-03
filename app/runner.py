@@ -14,9 +14,10 @@ import multiprocessing as mp
 import os
 import time
 
+from . import ingest
 from .config import Settings
 from .engine.presets import DEFAULT_MODE, PRESETS
-from .store import Item, Job, JobStore
+from .store import Item, Job, JobStore, natural_key
 
 log = logging.getLogger("roomlit.runner")
 
@@ -202,16 +203,22 @@ class Dispatcher:
         with job.lock:
             item.width, item.height = res["width"], res["height"]
             item.analysis = res["analysis"]
-            self.store.retarget_ext(job, item, res["out_ext"])
             item.status = "ready"
             job.bump()
 
     async def _organize(self, job: Job, mode: str) -> None:
-        """Duplicates, room types and gallery order for every apartment folder that has new photos."""
+        """Decide the final order of every apartment folder that has new photos, then queue the edits.
+
+        Default: nothing is removed and nothing is moved - every photo is kept, in file-manager name order.
+        Smart organisation (opt-in) additionally removes same-shot copies and arranges the gallery for Airbnb."""
         t0 = time.time()
         sets = self.store.sets_needing_organization(job)
         results: dict | None = None
-        if sets:
+        if sets and not job.smart:
+            for s in sets:
+                self.store.apply_organization(job, s, None)
+            job.ml = None
+        elif sets:
             payload = [self.store.organizer_payload(job, s) for s in sets]
             try:
                 await asyncio.to_thread(self.worker.close)          # never two heavy processes at once
@@ -229,7 +236,7 @@ class Dispatcher:
         # edit the kept photos, main photo first
         queued: list[Item] = []
         with job.lock:
-            for s in sorted(job.sets.values(), key=lambda s: s.id):
+            for s in sorted(job.sets.values(), key=lambda s: natural_key(s.key)):
                 ordered = [job.items[i] for i in s.order if i in job.items]
                 queued += [i for i in ordered if i.status == "ready" and i.included]
             job.organizing = False
@@ -254,7 +261,7 @@ class Dispatcher:
             res = await asyncio.to_thread(
                 self.worker.call, "process",
                 (job.p_original(item.id), job.p_edited(item.id), job.p_preview, item.id, mode,
-                 group_wb, self.cfg.max_pixels), self.cfg.task_timeout_s)
+                 group_wb, self.cfg.max_pixels, ingest.container_for(item.name)), self.cfg.task_timeout_s)
         except (ImageProblem, WorkerError) as e:
             self._fail(job, item, str(e), drop_original=isinstance(e, ImageProblem))
             return
@@ -282,14 +289,15 @@ class Dispatcher:
         log.info("job %s item %s failed: %s", job.id[:6], item.id, message[:80])
 
     # -------------------------------------------------------------- user actions
-    def start_job(self, job: Job, mode: str) -> int:
-        """Organise (duplicates / rooms / order) and then edit every new photo that was kept."""
+    def start_job(self, job: Job, mode: str, smart: bool = False) -> int:
+        """Fix the order (and, only if asked, remove same-shot copies), then edit every new photo that was kept."""
         mode = mode if mode in PRESETS else DEFAULT_MODE
         with job.lock:
             job.mode = mode
             todo = [i for i in job.items.values() if i.status in ("uploaded", "analyzing", "ready") and not i.excluded]
             if not todo or job.organizing:
                 return 0 if not todo else len(todo)
+            job.smart = bool(smart)
             job.organizing = True
             job.bump()
         # analysis tasks of these photos are already ahead in the FIFO queue, so they finish before this runs

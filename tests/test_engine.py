@@ -109,18 +109,29 @@ def test_strip_processing_matches_whole_image(tmp_path):
     assert diff.mean() < 0.05 and np.percentile(diff, 99.9) <= 3
 
 
-def test_png_stays_png_and_heic_becomes_jpg(tmp_path):
+def test_output_format_follows_the_file_name_so_the_name_never_changes(tmp_path):
     bgr = synth.scene(w=400, h=300)
     png = str(tmp_path / "a.png"); cv2.imwrite(png, bgr)
     out = str(tmp_path / "a_out.png")
-    r = pipeline.process_file(png, out, str(tmp_path), 2, "natural", None, MAXPX)
+    pipeline.process_file(png, out, str(tmp_path), 2, "natural", None, MAXPX, ".png")
     assert Image.open(out).format == "PNG" and Image.open(out).size == (400, 300)
-    if imageio.HEIC_OK:
+    # a PNG that someone named .jpg comes back as a real JPEG with that same name, and a JPEG named .png as a real PNG
+    out2 = str(tmp_path / "b_out")
+    pipeline.process_file(png, out2, str(tmp_path), 5, "natural", None, MAXPX, ".jpg")
+    assert Image.open(out2).format == "JPEG" and Image.open(out2).size == (400, 300)
+    jpg = str(tmp_path / "c.jpg"); cv2.imwrite(jpg, bgr)
+    out3 = str(tmp_path / "c_out")
+    pipeline.process_file(jpg, out3, str(tmp_path), 6, "natural", None, MAXPX, ".png")
+    assert Image.open(out3).format == "PNG" and Image.open(out3).size == (400, 300)
+    if imageio.HEIC_OK:                # a .heic comes back as a real HEIC with the same name
         import pillow_heif
         heic = str(tmp_path / "a.heic")
         pillow_heif.from_pillow(Image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))).save(heic)
         res = pipeline.analyze_file(heic, str(tmp_path), 3, MAXPX)
-        assert res["out_ext"] == ".jpg" and (res["width"], res["height"]) == (400, 300)
+        assert res["out_ext"] == ".heic" and (res["width"], res["height"]) == (400, 300)
+        out4 = str(tmp_path / "d_out")
+        pipeline.process_file(heic, out4, str(tmp_path), 7, "natural", None, MAXPX, ".heic")
+        im = Image.open(out4); assert im.format == "HEIF" and im.size == (400, 300)
 
 
 def test_grayscale_and_cmyk_inputs(tmp_path):

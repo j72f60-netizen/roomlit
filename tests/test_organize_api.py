@@ -5,7 +5,13 @@ import pytest
 from fastapi.testclient import TestClient
 import app.main as main
 from . import synth
-from .test_api import H, FILE, up, wait, jpeg, run_job, client, authed  # noqa: F401
+from .test_api import H, FILE, up, wait, jpeg, client, authed  # noqa: F401
+from .test_api import run_job as _run_job
+
+
+def run_job(c, files, mode="premium"):
+    """These tests are about smart organisation, which is opt-in."""
+    return _run_job(c, files, mode, smart=True)
 
 
 def enc(img, q=92) -> bytes:
@@ -38,7 +44,7 @@ def by_name(j, folder):
 
 def zip_names(c, jid, numbering=1):
     z = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering={numbering}").content))
-    return z, [n for n in z.namelist() if not n.endswith(".csv")]
+    return z, z.namelist()
 
 
 def test_duplicates_are_found_and_listed_but_not_edited(job):
@@ -79,7 +85,8 @@ def test_zip_contains_only_kept_photos_in_order_and_log_explains_the_rest(job):
     s1 = next(s for s in j["sets"] if s["label"] == "1")
     main_item = next(i for i in j["items"] if i["id"] == s1["order"][0])
     assert first.endswith(" - " + main_item["name"])                                                # file 01 is the chosen main photo
-    log = z.read("Al Khuzama/Roomlit log.csv").decode("utf-8-sig")
+    assert not any(n.endswith(".csv") for n in z.namelist())                                       # the ZIP holds photos only
+    log = c.get(f"/api/jobs/{jid}/log.csv?numbering=1").content.decode("utf-8-sig")
     rows = [r.split(",") for r in log.strip().splitlines()[1:]]
     assert sum(1 for r in rows if "excluded" in r) == 3
     assert "Same shot as" in log and all(n in log for n in ("IMG_001.jpg", "IMG_002.jpg", "other name.jpg", "x1.jpg", "x2.jpg"))
@@ -196,7 +203,7 @@ def test_adding_photos_later_keeps_the_users_arrangement(job):
     c.post(f"/api/jobs/{jid}/sets/{s['id']}/order", json={"order": new}, headers=H)
     assert up(c, jid, "Al Khuzama/1/late.jpg", enc(synth.layout(299))).status_code == 200
     wait(c, jid, lambda j: j["counts"]["ready"] >= 1 and j["counts"]["uploaded"] + j["counts"]["analyzing"] == 0)
-    assert c.post(f"/api/jobs/{jid}/start", json={}, headers=H).status_code == 200
+    assert c.post(f"/api/jobs/{jid}/start", json={"smart": True}, headers=H).status_code == 200
     j2 = wait(c, jid, lambda j: j["phase"] == "done")
     order = next(x for x in j2["sets"] if x["label"] == "1")["order"]
     assert order[:4] == new and len(order) == 5                                                    # arranged photos did not move; new one appended

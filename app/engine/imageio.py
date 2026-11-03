@@ -79,7 +79,7 @@ def inspect(path: str, max_pixels: int) -> Meta:
             if fmt == "MPO":
                 fmt = "JPEG"
             orientation = int(im.getexif().get(0x0112, 1) or 1)
-            ext = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp", "TIFF": ".tif", "HEIF": ".jpg"}[fmt]
+            ext = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp", "TIFF": ".tif", "HEIF": ".heic"}[fmt]
             return Meta(
                 fmt=fmt, width=w, height=h, orientation=orientation,
                 exif=_clean_exif(im), icc=im.info.get("icc_profile"), out_ext=ext,
@@ -194,6 +194,12 @@ def encode(img: np.ndarray, meta: Meta) -> bytes:
         kw["icc_profile"] = meta.icc
     if meta.out_ext == ".png":
         pil.save(buf, "PNG", **kw)
+    elif meta.out_ext == ".heic":
+        if not HEIC_OK:
+            raise ImageError("HEIC files cannot be written on this server; convert the photo to JPG first")
+        if meta.exif:
+            kw["exif"] = meta.exif
+        pil.save(buf, "HEIF", quality=90, **kw)
     elif meta.out_ext == ".webp":
         pil.save(buf, "WEBP", quality=95, method=4, **kw)
     else:

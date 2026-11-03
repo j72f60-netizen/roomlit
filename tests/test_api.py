@@ -46,13 +46,13 @@ def wait(c, jid, pred, t=180):
     raise AssertionError(j)
 
 
-def run_job(c, files: dict, mode="premium"):
+def run_job(c, files: dict, mode="premium", smart=False):
     """Upload {path: bytes}, start, wait until everything kept is edited.  Returns (job id, final job json)."""
     jid = c.post("/api/jobs", json={"mode": mode}, headers=H).json()["id"]
     for path, data in files.items():
         assert up(c, jid, path, data).status_code == 200, path
     wait(c, jid, lambda j: j["counts"]["ready"] + j["counts"]["failed"] == len(files))
-    assert c.post(f"/api/jobs/{jid}/start", json={"mode": mode}, headers=H).status_code == 200
+    assert c.post(f"/api/jobs/{jid}/start", json={"mode": mode, "smart": smart}, headers=H).status_code == 200
     j = wait(c, jid, lambda j: j["phase"] in ("done", "failed") and j["counts"]["queued"] + j["counts"]["processing"] == 0)
     return jid, j
 
@@ -118,24 +118,20 @@ def test_folder_upload_zip_has_original_names_and_no_edited_words(authed):
     assert r.status_code == 200 and "Al%20Khuzama.zip" in r.headers["content-disposition"].replace("filename*=utf-8''", "Al%20Khuzama.zip ") or "Al Khuzama.zip" in r.headers["content-disposition"]
     z = zipfile.ZipFile(io.BytesIO(r.content))
     names = z.namelist()
-    assert "Al Khuzama/Roomlit log.csv" in names
-    photos = [n for n in names if not n.endswith(".csv")]
     assert all(n.split("/")[0] == "Al Khuzama" for n in names)                                     # root folder name exactly as uploaded
-    assert {os.path.dirname(n) for n in photos} == {"Al Khuzama/1", "Al Khuzama/02", "Al Khuzama/3/x"}  # same sub-folders
+    assert sorted(names) == sorted(["Al Khuzama/1/a.jpg", "Al Khuzama/1/B.JPG", "Al Khuzama/02/a.jpg",
+                                    "Al Khuzama/3/x/deep.jpg", "Al Khuzama/3/x/also.jpg"])        # exact names, photos only (no log, no prefix)
+    assert {os.path.dirname(n) for n in names} == {"Al Khuzama/1", "Al Khuzama/02", "Al Khuzama/3/x"}  # same sub-folders
     assert not any(w in n for n in names for w in ("Edited", "Airbnb"))
-    strip = lambda n: n.split(" - ", 1)[1]
-    assert sorted(strip(n) for n in photos) == sorted(["a.jpg", "B.JPG", "a.jpg", "deep.jpg", "also.jpg"])    # original names after the order number
-    assert all(os.path.basename(n)[:2].isdigit() for n in photos)
-    for n in photos:
+    for n in names:
         assert Image.open(io.BytesIO(z.read(n))).size == (480, 360)
-    # numbering can be switched off: names are then exactly the originals
-    z2 = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering=0").content))
-    assert sorted(n for n in z2.namelist() if not n.endswith(".csv")) == sorted(["Al Khuzama/1/a.jpg", "Al Khuzama/1/B.JPG", "Al Khuzama/02/a.jpg", "Al Khuzama/3/x/deep.jpg", "Al Khuzama/3/x/also.jpg"])
-    # download log keeps the original names
-    log = z.read("Al Khuzama/Roomlit log.csv").decode("utf-8-sig")
+    # numbering is an opt-in extra
+    z2 = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering=1").content))
+    assert sorted(n.split(" - ", 1)[1] for n in z2.namelist()) == sorted(["a.jpg", "B.JPG", "a.jpg", "deep.jpg", "also.jpg"])
+    # the log is a separate download and keeps the original names
+    log = c.get(f"/api/jobs/{jid}/log.csv").content.decode("utf-8-sig")
     for orig in ("a.jpg", "B.JPG", "deep.jpg", "also.jpg"):
         assert orig in log
-    assert c.get(f"/api/jobs/{jid}/log.csv").status_code == 200
     one = c.get(f"/api/jobs/{jid}/items/{j['items'][0]['id']}/download")
     assert one.status_code == 200 and Image.open(io.BytesIO(one.content)).size == (480, 360)
     root = main.store.jobs[jid].root
@@ -147,8 +143,9 @@ def test_same_name_files_in_one_folder_are_both_delivered(authed):
     c = authed
     jid, j = run_job(c, {"R/1/a.jpg": jpeg(k=11), "R/1/A.JPG": jpeg(k=12)})        # case-insensitive clash
     z = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering=0").content))
-    names = sorted(n for n in z.namelist() if not n.endswith(".csv"))
-    assert names == ["R/1/A (2).JPG", "R/1/a.jpg"] or names == ["R/1/A.JPG", "R/1/a (2).jpg"] or len(names) == 2
+    names = sorted(z.namelist())
+    assert len(names) == 2 and len({n.lower() for n in names}) == 2                      # nothing lost, nothing overwritten
+    assert {n for n in names if "(2)" not in n} <= {"R/1/a.jpg", "R/1/A.JPG"}
 
 
 def test_zip_upload_keeps_the_zip_folder_name(authed):
@@ -167,7 +164,7 @@ def test_zip_upload_keeps_the_zip_folder_name(authed):
     j = wait(c, jid, lambda j: j["counts"]["done"] == 3)
     assert j["zip_name"] == "Villa Nord.zip"
     z = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering=0").content))
-    assert sorted(n for n in z.namelist() if not n.endswith(".csv")) == ["Villa Nord/Bedroom/2.jpg", "Villa Nord/Bedroom/3.jpg", "Villa Nord/Living/1.jpg"]
+    assert sorted(z.namelist()) == ["Villa Nord/Bedroom/2.jpg", "Villa Nord/Bedroom/3.jpg", "Villa Nord/Living/1.jpg"]
 
 
 def test_loose_files_and_multiple_roots(authed):
@@ -175,8 +172,7 @@ def test_loose_files_and_multiple_roots(authed):
     jid, j = run_job(c, {"loose.jpg": jpeg(k=30), "Other Folder/x.jpg": jpeg(k=31)})
     assert j["zip_name"] == "Roomlit export.zip"
     z = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/download.zip?numbering=0").content))
-    assert sorted(n for n in z.namelist() if not n.endswith(".csv")) == ["Other Folder/x.jpg", "Photos/loose.jpg"]
-    assert "Roomlit log.csv" in z.namelist()
+    assert sorted(z.namelist()) == ["Other Folder/x.jpg", "Photos/loose.jpg"]
 
 
 def test_reprocess_one_photo_and_all_modes(authed):

@@ -27,10 +27,11 @@ def test_output_paths_mirror_the_upload_exactly():
     assert f("Al Khuzama/a/b/img.jpg") == "Al Khuzama/a/b/img.jpg"
     assert f("Al Khuzama/img.jpg") == "Al Khuzama/img.jpg"
     assert f("loose.jpg") == "Photos/loose.jpg"
-    assert ingest.out_rel_for(["R", "x.heic"], ".jpg") == "R/x.jpg"
+    assert ingest.out_rel_for(["R", "x.heic"]) == "R/x.heic"                  # the name never changes, whatever the format
     assert f("شقة الخزامة/غرفة ١/صورة.jpg") == "شقة الخزامة/غرفة ١/صورة.jpg"
     assert f("Trailing space /x.jpg") == "Trailing space /x.jpg"             # names are not trimmed
-    assert ingest.out_ext_for("IMG_1.JPG") is None and ingest.out_ext_for("a.HEIC") == ".jpg"
+    assert [ingest.container_for(n) for n in ("a.JPG", "a.jpeg", "a.PNG", "a.webp", "a.TIFF", "a.heic", "a.HEIF")] == \
+        [".jpg", ".jpg", ".png", ".webp", ".tif", ".heic", ".heic"]
 
 
 def test_duplicate_filenames_are_kept_safely_and_case_insensitively():
