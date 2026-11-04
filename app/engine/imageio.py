@@ -179,6 +179,41 @@ def _splice_jpeg(data: bytes, exif: bytes | None, icc: bytes | None) -> bytes:
     return data[:pos] + segs + data[pos:]
 
 
+def enlarge(img: np.ndarray, target_long: int, max_scale: float = 2.5) -> np.ndarray:
+    """Photos smaller than `target_long` (long edge) are enlarged with the same proportions; larger ones are returned as is.
+
+    Lanczos interpolation, then a thresholded unsharp mask that restores the edge crispness interpolation takes away
+    without boosting grain.  Nothing is invented: it is the same picture on a bigger canvas."""
+    h, w = img.shape[:2]
+    if target_long <= 0 or max(h, w) >= target_long:
+        return img
+    s = min(max_scale, target_long / max(h, w))
+    out = cv2.resize(img, (max(1, round(w * s)), max(1, round(h * s))), interpolation=cv2.INTER_LANCZOS4)
+    blur = cv2.GaussianBlur(out, (0, 0), 0.8 * s ** 0.5)
+    d = out.astype(np.int16) - blur.astype(np.int16)
+    d[np.abs(d) < 3] = 0                                   # below the noise floor: leave alone
+    return np.clip(out.astype(np.int16) + (0.6 * d).astype(np.int16), 0, 255).astype(np.uint8)
+
+
+def exif_with_size(exif: bytes | None, w: int, h: int) -> bytes | None:
+    """EXIF whose pixel-dimension tags match the (enlarged) picture; unchanged if it cannot be rewritten."""
+    if not exif:
+        return exif
+    try:
+        ex = Image.Exif()
+        ex.load(exif)
+        sub = ex.get_ifd(0x8769)
+        for tag, val in ((0xA002, w), (0xA003, h)):
+            if tag in sub:
+                sub[tag] = val
+        for tag, val in ((0x0100, w), (0x0101, h)):
+            if tag in ex:
+                ex[tag] = val
+        return b"Exif\x00\x00" + ex.tobytes()
+    except Exception:
+        return exif
+
+
 def encode(img: np.ndarray, meta: Meta) -> bytes:
     """Encode the edited pixels in the right container, carrying EXIF + ICC."""
     if meta.out_ext == ".jpg":

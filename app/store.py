@@ -146,6 +146,7 @@ class Job:
     purged: bool = False
     deleting: bool = False
     organizing: bool = False
+    enlarge: bool = False            # enhance resolution: photos under ENLARGE_TO px (long edge) are enlarged, same proportions
     smart: bool = True               # remove same-shot copies and arrange for Airbnb/Booking; False = keep every photo in name order
     ml: bool | None = None           # was the room model available for the last organisation?
     lock: threading.RLock = field(default_factory=threading.RLock)
@@ -525,6 +526,7 @@ class JobStore:
                 "id": job.id, "rev": job.rev, "mode": job.mode, "phase": phase, "counts": counts,
                 "ignored": dict(job.ignored), "already": job.ignored.get("same_file", 0),
                 "ignored_total": sum(v for k, v in job.ignored.items() if k != "same_file"), "smart": job.smart,
+                "enlarge": job.enlarge,
                 "expires_in": self.expires_in(job), "downloaded": bool(job.downloaded_at),
                 "purged": job.purged, "created": int(job.created), "items": items, "sets": sets,
                 "roots": roots, "zip_name": self.zip_name(job), "ml": job.ml, "rooms": CLASSES,

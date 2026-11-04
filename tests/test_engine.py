@@ -31,7 +31,7 @@ def test_dimensions_exif_icc_preserved(tmp_path):
     assert prev.size == (480, 640)
 
 
-@pytest.mark.parametrize("mode", ["natural", "premium", "bright"])
+@pytest.mark.parametrize("mode", ["natural", "premium", "bright", "pro"])
 def test_blue_sofa_brighter_same_hue(tmp_path, mode):
     bgr = synth.scene()
     _, dst, _ = run(tmp_path, bgr, mode)

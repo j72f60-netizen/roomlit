@@ -21,6 +21,8 @@ from .store import Item, Job, JobStore, natural_key
 
 log = logging.getLogger("roomlit.runner")
 
+ENLARGE_TO = 2048            # Airbnb's recommended long edge; smaller photos are enlarged to it when "enhance resolution" is on
+
 
 class WorkerError(Exception):
     """Worker-level failure with a message that is safe to show to the user."""
@@ -261,7 +263,8 @@ class Dispatcher:
             res = await asyncio.to_thread(
                 self.worker.call, "process",
                 (job.p_original(item.id), job.p_edited(item.id), job.p_preview, item.id, mode,
-                 group_wb, self.cfg.max_pixels, ingest.container_for(item.name), list(item.retouch)),
+                 group_wb, self.cfg.max_pixels, ingest.container_for(item.name), list(item.retouch),
+                 ENLARGE_TO if job.enlarge else 0),
                 self.cfg.task_timeout_s)
         except (ImageProblem, WorkerError) as e:
             self._fail(job, item, str(e), drop_original=isinstance(e, ImageProblem))
@@ -290,7 +293,7 @@ class Dispatcher:
         log.info("job %s item %s failed: %s", job.id[:6], item.id, message[:80])
 
     # -------------------------------------------------------------- user actions
-    def start_job(self, job: Job, mode: str, smart: bool = True) -> int:
+    def start_job(self, job: Job, mode: str, smart: bool = True, enlarge: bool = False) -> int:
         """Fix the order (smart: also set same-shot copies aside), then edit every new photo that was kept."""
         mode = mode if mode in PRESETS else DEFAULT_MODE
         with job.lock:
@@ -299,6 +302,7 @@ class Dispatcher:
             if not todo or job.organizing:
                 return 0 if not todo else len(todo)
             job.smart = bool(smart)
+            job.enlarge = bool(enlarge)
             job.organizing = True
             job.bump()
         # analysis tasks of these photos are already ahead in the FIFO queue, so they finish before this runs

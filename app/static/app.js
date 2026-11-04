@@ -7,7 +7,9 @@ const I18N = {
     app_title: 'Photo editor for property listings', sign_in: 'Sign in', sign_out: 'Sign out', username: 'Username', password: 'Password',
     login_bad: 'Wrong username or password.', login_locked: 'Too many attempts. Try again in {m} min.',
     step_mode: 'Choose an editing mode', step_add: 'Add photos',
-    mode_natural: 'Natural', mode_premium: 'Premium Airbnb', mode_bright: 'Bright & Clean',
+    mode_natural: 'Natural', mode_premium: 'Premium Airbnb', mode_bright: 'Bright & Clean', mode_pro: 'Pro Listing',
+    mode_pro_d: 'The full professional brief: brighter with natural shadows, open dark areas, fresh white bedding, brighter blue furniture (same colour) and one consistent look across the set.',
+    enlarge: 'Enhance resolution', enlarge_hint: 'Photos smaller than 2048 px on the long side are enlarged to 2048 px with the same proportions and restored crispness. Bigger photos keep their size.',
     mode_natural_d: 'Subtle exposure, colour, sharpness and noise improvements.',
     mode_premium_d: 'Bright, balanced, professional listing look with natural colours and excellent detail.',
     mode_bright_d: 'Brighter interiors, lifted shadows and clean whites without blowing out windows.',
@@ -65,7 +67,9 @@ const I18N = {
     app_title: 'محرر صور العقارات', sign_in: 'تسجيل الدخول', sign_out: 'تسجيل الخروج', username: 'اسم المستخدم', password: 'كلمة المرور',
     login_bad: 'اسم المستخدم أو كلمة المرور غير صحيحة.', login_locked: 'محاولات كثيرة. حاول مجددًا بعد {m} دقيقة.',
     step_mode: 'اختر نمط التحرير', step_add: 'أضف الصور',
-    mode_natural: 'طبيعي', mode_premium: 'بريميوم Airbnb', mode_bright: 'ساطع ونظيف',
+    mode_natural: 'طبيعي', mode_premium: 'بريميوم Airbnb', mode_bright: 'ساطع ونظيف', mode_pro: 'احترافي (حسب المواصفات)',
+    mode_pro_d: 'كل بنود المواصفات الاحترافية: إضاءة أعلى بظلال طبيعية، توضيح المناطق الداكنة، شراشف بيضاء نظيفة، كنب أزرق أفتح بنفس لونه، ومظهر موحّد لكل الصور.',
+    enlarge: 'تحسين الدقة', enlarge_hint: 'الصور الأصغر من 2048 بكسل في الضلع الأطول تُكبَّر إلى 2048 بنفس النسب مع استعادة الحدّة. الصور الأكبر تبقى بحجمها.',
     mode_natural_d: 'تحسينات خفيفة في الإضاءة والألوان والحدّة وتقليل التشويش.',
     mode_premium_d: 'مظهر احترافي ساطع ومتوازن لإعلانات الإيجار، بألوان طبيعية وتفاصيل ممتازة.',
     mode_bright_d: 'إضاءة أعلى للمساحات الداخلية وظلال أوضح وبياض نظيف دون حرق النوافذ.',
@@ -120,7 +124,7 @@ const I18N = {
     err_order_mismatch: 'تغيّرت قائمة الصور. حاول مرة أخرى.', err_not_in_gallery: 'استعد هذه الصورة أولًا.',
   },
 };
-const MODES = ['natural', 'premium', 'bright'];
+let MODES = ['natural', 'premium', 'bright'];                      // replaced by the server's list (/api/config) at start
 const STORE = (() => { try { return window.localStorage; } catch { return null; } })();
 let lang = (STORE && STORE.getItem('hpe_lang')) || ((navigator.language || '').toLowerCase().startsWith('ar') ? 'ar' : 'en');
 const t = (k, v = {}) => String((I18N[lang][k] ?? I18N.en[k] ?? k)).replace(/\{(\w+)\}/g, (_, n) => (v[n] ?? ''));
@@ -166,6 +170,7 @@ const S = { cfg: null, job: null, rev: 0, mode: 'premium', timer: null, sig: '',
   up: null, clickedZip: false, clientIgnored: 0, user: null, drag: null,
   numbering: (() => { try { return localStorage.getItem('rl_num3') !== '0'; } catch { return true; } })(),
   smart: (() => { try { return localStorage.getItem('rl_smart2') !== '0'; } catch { return true; } })(),
+  enlarge: (() => { try { return localStorage.getItem('rl_enl2') !== '0'; } catch { return true; } })(),
   suffix: (() => { try { const v = localStorage.getItem('rl_sfx'); return v === null ? DEFAULT_SUFFIX : v; } catch { return DEFAULT_SUFFIX; } })(), openEx: {} };
 const ALLOWED = new Set(['.jpg', '.jpeg', '.png', '.webp', '.tif', '.tiff', '.heic', '.heif']);
 const extOf = (n) => { const i = n.lastIndexOf('.'); return i < 0 ? '' : n.slice(i).toLowerCase(); };
@@ -189,7 +194,7 @@ function showLogin() {
 }
 async function showApp() {
   $('#view-login').classList.add('hidden'); $('#view-app').classList.remove('hidden'); $('#btn-logout').classList.remove('hidden');
-  S.cfg = await api('/config'); S.mode = S.cfg.default_mode; applyLang();
+  S.cfg = await api('/config'); if (Array.isArray(S.cfg.modes) && S.cfg.modes.length) MODES = S.cfg.modes; S.mode = S.cfg.default_mode; applyLang();
   const { jobs } = await api('/jobs');
   S.oldJobs = jobs;
   if (jobs.length) await openJob(jobs[0].id); else showStart();
@@ -398,6 +403,7 @@ function renderJob() {
   bStart.textContent = S.smart ? (toStart === 1 ? t('start_smart_one') : t('start_smart', { n: toStart })) : (toStart === 1 ? t('start_one') : t('start', { n: toStart }));
   bStart.disabled = !!S.up;
   const sm = $('#smart-row'); sm.classList.toggle('hidden', !(toStart > 0 && !working && !org)); $('#smart').checked = S.smart;
+  $('#enlarge-row').classList.toggle('hidden', !(toStart > 0 && !working && !org)); $('#enlarge').checked = S.enlarge;
   const zip = $('#btn-zip'), canZip = c.done > 0;
   zip.classList.toggle('hidden', !canZip); zipLinks(j);
   zip.setAttribute('aria-disabled', working || org ? 'true' : 'false');
@@ -592,11 +598,12 @@ async function act(path, body) {
 
 /* ------------------------------------------------------------------ job actions */
 $('#btn-start').addEventListener('click', async () => {
-  try { await api('/jobs/' + S.job.id + '/start', { method: 'POST', body: { mode: S.mode, smart: S.smart } }); await poll(true); } catch (e) { toast(errText(e), true); }
+  try { await api('/jobs/' + S.job.id + '/start', { method: 'POST', body: { mode: S.mode, smart: S.smart, enlarge: S.enlarge } }); await poll(true); } catch (e) { toast(errText(e), true); }
 });
 $('#btn-zip').addEventListener('click', (e) => { if ($('#btn-zip').getAttribute('aria-disabled') === 'true') { e.preventDefault(); return; } S.clickedZip = true; setTimeout(() => $('#banner-dl').classList.remove('hidden'), 600); });
 $('#numbering').addEventListener('change', (e) => { S.numbering = e.target.checked; try { localStorage.setItem('rl_num3', S.numbering ? '1' : '0'); } catch { /* */ } renderJob(); });
 $('#smart').addEventListener('change', (e) => { S.smart = e.target.checked; try { localStorage.setItem('rl_smart2', S.smart ? '1' : '0'); } catch { /* */ } renderJob(); });
+$('#enlarge').addEventListener('change', (e) => { S.enlarge = e.target.checked; try { localStorage.setItem('rl_enl2', S.enlarge ? '1' : '0'); } catch { /* */ } });
 $('#suffix').addEventListener('input', (e) => { S.suffix = e.target.value; try { localStorage.setItem('rl_sfx', S.suffix); } catch { /* */ } if (S.job) zipLinks(S.job); });
 $('#btn-delete').addEventListener('click', () => removeJob(S.job.id));
 $('#btn-delete-now').addEventListener('click', () => removeJob(S.job.id));

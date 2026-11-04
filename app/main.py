@@ -309,7 +309,7 @@ async def start_job(job_id: str, request: Request, user: str = Depends(current_u
     job = _job(job_id, user)
     body = await _json(request)
     job.touch()
-    n = dispatcher.start_job(job, _mode(body.get("mode", job.mode)), body.get("smart") is not False)
+    n = dispatcher.start_job(job, _mode(body.get("mode", job.mode)), body.get("smart") is not False, body.get("enlarge") is True)
     if not n:
         raise JobError(409, "nothing_to_process", "There are no new photos to process.")
     return {"queued": n}

@@ -52,7 +52,7 @@ def group_params(analyses: list[dict]) -> dict:
 
 def process_file(src: str, dst: str, preview_dir: str, item_id: int, mode: str,
                  group_wb: tuple[float, float, float] | None, max_pixels: int, container: str | None = None,
-                 strokes: list | None = None) -> dict:
+                 strokes: list | None = None, enlarge_to: int = 0) -> dict:
     t0 = time.perf_counter()
     preset = get_preset(mode)
     meta = imageio.inspect(src, max_pixels)
@@ -67,6 +67,12 @@ def process_file(src: str, dst: str, preview_dir: str, item_id: int, mode: str,
     enhance_inplace(img, ctx)
     if img.shape[:2] != (h, w):  # pragma: no cover - guard: geometry must never change
         raise imageio.ImageError("Internal error: image size changed")
+    if enlarge_to:                     # "enhance resolution": small photos get a bigger canvas, same proportions
+        big = imageio.enlarge(img, enlarge_to)
+        if big is not img:
+            img = big
+            h, w = img.shape[:2]
+            meta.exif = imageio.exif_with_size(meta.exif, w, h)
     _write_previews(preview_dir, item_id, img, meta.orientation, "after")
     data = imageio.encode(img, meta)
     tmp = dst + ".part"

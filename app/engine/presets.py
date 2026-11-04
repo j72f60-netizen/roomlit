@@ -88,6 +88,26 @@ PRESETS: dict[str, Preset] = {
         vibrance=0.02,
         saturation=0.92,
     ),
+    # The professional-listing brief in one look: brighter without losing natural shadows, open dark areas, fresh white
+    # bedding (cast removed from whites only) and a visibly brighter blue sofa (same hue, same saturation), consistent
+    # across a folder.  Highlights stay protected, so windows and white linen keep their texture.
+    "pro": Preset(
+        key="pro",
+        target_median=0.54,
+        max_ev=0.70,
+        wb_strength=0.80,
+        wb_max=0.09,
+        shadow_lift=0.55,
+        highlight_recover=0.50,
+        contrast=0.10,
+        clarity=0.24,
+        sharpen=0.52,
+        denoise=0.70,
+        whites_clean=0.85,
+        blue_lift=0.85,
+        vibrance=0.02,
+        saturation=0.95,
+    ),
 }
 
 DEFAULT_MODE = "premium"
