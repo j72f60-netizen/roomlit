@@ -65,10 +65,18 @@ def fname(r):
     return urllib.parse.unquote(cd.split("filename*=utf-8''")[1]) if "filename*=" in cd else cd.split('filename="')[1].rstrip('"')
 
 
+MINE = []
+BASE_FILES = c.get("/api/diag").json()["files_on_disk"]
+
+
+def new_job(mode="premium"):
+    jid = c.post("/api/jobs", json={"mode": mode}).json()["id"]
+    MINE.append(jid)
+    return jid
+
+
 def run(label, start_body, zip_query):
-    for old in c.get("/api/jobs").json()["jobs"]:
-        c.delete(f"/api/jobs/{old['id']}")
-    jid = c.post("/api/jobs", json={"mode": "premium"}).json()["id"]
+    jid = new_job()
     order = list(files); random.Random(11).shuffle(order)
 
     def send(path):
@@ -146,5 +154,50 @@ assert all(o in files for o in entries.values()), "every delivered file is one o
 check_pixels(z, entries)
 print(f"OK default: {cnt['total']} in, {cnt['excluded']} duplicates set aside, {len(names)} delivered, numbered, folder '{SUFFIX}' added; zip: {fname(r)}")
 print("   first entries:", names[:3])
-c.delete(f"/api/jobs/{jid}")
-d = c.get("/api/diag").json(); assert d["files_on_disk"] == 0, d; print("cleanup OK: 0 files left on the server")
+
+# ---------------------------------------------------------------- 3. Pro Listing + Enhance resolution + Retouch
+def small_copy(p, long_edge=1200):
+    im = cv2.imdecode(np.frombuffer(read(p), np.uint8), cv2.IMREAD_COLOR); k = long_edge / max(im.shape[:2])
+    return cv2.imencode(".jpg", cv2.resize(im, None, fx=k, fy=k, interpolation=cv2.INTER_AREA), [cv2.IMWRITE_JPEG_QUALITY, 92])[1].tobytes()
+
+
+def pole(p):
+    im = cv2.imdecode(np.frombuffer(read(p), np.uint8), cv2.IMREAD_COLOR); h, w = im.shape[:2]
+    cv2.line(im, (int(w * .22), int(h * .12)), (int(w * .27), int(h * .62)), (43, 90, 138), max(8, w // 150), cv2.LINE_AA)
+    return cv2.imencode(".jpg", im, [cv2.IMWRITE_JPEG_QUALITY, 92])[1].tobytes()
+
+
+jid = new_job("pro")
+small, big = small_copy(room[0]), pole(room[1])
+for name, data in (("Pro Villa/Unit 2/small_1200.jpg", small), ("Pro Villa/Unit 2/with_pole.jpg", big)):
+    assert c.post(f"/api/jobs/{jid}/files", params={"path": name}, content=data, headers={"Content-Type": "application/octet-stream"}).status_code == 200
+j = c.get(f"/api/jobs/{jid}").json()
+end = time.time() + 300
+while j["counts"]["ready"] < 2 and time.time() < end: time.sleep(1); j = c.get(f"/api/jobs/{jid}").json()
+assert c.post(f"/api/jobs/{jid}/start", json={"mode": "pro", "smart": False, "enlarge": True}).status_code == 200
+while not (j["counts"]["done"] == 2) and time.time() < end: time.sleep(1); j = c.get(f"/api/jobs/{jid}").json()
+by = {i["name"]: i for i in j["items"]}
+assert j["counts"]["done"] == 2 and all(i["mode"] == "pro" for i in j["items"])
+assert (by["small_1200.jpg"]["w"], by["small_1200.jpg"]["h"]) == (2048, round(2048 * Image.open(io.BytesIO(small)).size[1] / 1200)), by["small_1200.jpg"]
+assert by["with_pole.jpg"]["w"] == Image.open(io.BytesIO(big)).size[0]                  # big photos keep their size
+print(f"OK pro + enhance resolution: 1200px photo -> {by['small_1200.jpg']['w']}x{by['small_1200.jpg']['h']}, {by['with_pole.jpg']['w']}px photo untouched in size, mode {by['with_pole.jpg']['mode']}")
+it = by["with_pole.jpg"]
+first = np.asarray(Image.open(io.BytesIO(c.get(f"/api/jobs/{jid}/items/{it['id']}/download").content)).convert("RGB")).astype(int)
+W0, H0 = Image.open(io.BytesIO(big)).size
+ops = [{"t": "remove", "r": 0.0075, "pts": [[0.22, 0.12], [0.27, 0.62]]}]
+assert c.post(f"/api/jobs/{jid}/items/{it['id']}/retouch", json={"ops": ops}).json() == {"ok": True, "queued": True}
+end = time.time() + 300
+while time.time() < end:
+    j = c.get(f"/api/jobs/{jid}").json(); cur = next(i for i in j["items"] if i["id"] == it["id"])
+    if cur["v"] == it["v"] + 1 and j["counts"]["done"] == 2: break
+    time.sleep(1)
+second = np.asarray(Image.open(io.BytesIO(c.get(f"/api/jobs/{jid}/items/{it['id']}/download").content)).convert("RGB")).astype(int)
+x0, x1 = int(W0 * .22) - 20, int(W0 * .27) + 20; y0, y1 = int(H0 * .12), int(H0 * .62)
+changed = np.abs(first - second)[y0:y1, x0:x1].mean(); far = np.abs(first - second)[:, int(W0 * .6):].mean()
+print(f"OK retouch: pole area changed by {changed:.1f} levels, area far away by {far:.2f} (the rest of the photo is untouched), name still {cur['out']}")
+assert changed > 3 and far < 0.5 and cur["rt"] == 1 and cur["out"] == "Pro Villa/Unit 2/with_pole.jpg"
+
+for jid in MINE:
+    c.delete(f"/api/jobs/{jid}")
+d = c.get("/api/diag").json(); assert d["files_on_disk"] <= BASE_FILES, d
+print("cleanup OK: this script's files are gone;  peak memory: web", d["web_peak_rss_mb"], "MB, image worker", d["worker_peak_mb"], "MB, organizer", d["organizer_peak_mb"], "MB")
