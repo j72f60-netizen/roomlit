@@ -166,7 +166,7 @@ const fmtMB = (b) => (b / 1e6 >= 10 ? Math.round(b / 1e6) : (b / 1e6).toFixed(1)
 
 /* ------------------------------------------------------------------ state */
 const DEFAULT_SUFFIX = 'بعد التعديل';
-const S = { cfg: null, job: null, rev: 0, mode: 'pro', timer: null, sig: '', cards: new Map(), modalId: null,
+const S = { cfg: null, job: null, rev: 0, actSeq: 0, mode: 'pro', timer: null, sig: '', cards: new Map(), modalId: null,
   up: null, clickedZip: false, clientIgnored: 0, user: null, drag: null,
   numbering: (() => { try { return localStorage.getItem('rl_num3') !== '0'; } catch { return true; } })(),
   smart: (() => { try { return localStorage.getItem('rl_smart2') !== '0'; } catch { return true; } })(),
@@ -376,8 +376,10 @@ function stopPolling() { if (S.timer) clearTimeout(S.timer); S.timer = null; }
 const pollDelay = () => (S.up || (S.job && ['preparing', 'processing', 'organizing'].includes(S.job.phase))) ? 900 : 4000;
 async function poll(force) {
   if (!S.job) return;
+  const tok = S.actSeq;
   try {
     const d = await api('/jobs/' + S.job.id + (force ? '' : '?since=' + S.rev));
+    if (tok !== S.actSeq) return;                              // the user clicked meanwhile: this answer is already out of date
     if (d.unchanged) { S.job.expires_in = d.expires_in; renderExpiry(); }
     else { S.job = d; S.rev = d.rev; renderJob(); }
   } catch (e) {
@@ -455,11 +457,11 @@ function makeCard(it) {
   const room = h('select', { class: 'room', 'aria-label': t('room_label') });
   room.addEventListener('change', () => act('/items/' + it.id + '/room', { room: room.value }));
   const mk = (cls, label, fn, text) => h('button', { type: 'button', class: 'mini ' + cls, title: label, 'aria-label': label, onclick: fn }, text);
-  const bMain = mk('main', t('make_main'), () => act('/items/' + it.id + '/main'), '★ ' + t('make_main_s'));
+  const bMain = mk('main', t('make_main'), () => makeMain(it.id), '★ ' + t('make_main_s'));
   const bPrev = mk('mv', t('earlier'), () => shiftItem(it.id, -1), h('span', {}, '‹'));
   const bNext = mk('mv', t('later'), () => shiftItem(it.id, 1), h('span', {}, '›'));
-  const bEx = mk('ex', t('exclude'), () => act('/items/' + it.id + '/exclude'), '✕');
-  const bRe = mk('restore', t('restore'), () => act('/items/' + it.id + '/restore'), '↺ ' + t('restore'));
+  const bEx = mk('ex', t('exclude'), () => fast('/items/' + it.id + '/exclude', () => localExclude(it.id)), '✕');
+  const bRe = mk('restore', t('restore'), () => fast('/items/' + it.id + '/restore', () => localRestore(it.id)), '↺ ' + t('restore'));
   const acts = h('div', { class: 'acts' }, bMain, bPrev, bNext, bEx, bRe);
   const el = h('div', { class: 'pcard', 'data-id': it.id }, h('button', { class: 'thumbbtn', type: 'button', onclick: () => openModal(it.id), 'aria-label': it.name }, thumb),
     h('div', { class: 'pinfo' }, name, h('div', { class: 'chips' }, chip, sim), room, why, acts));
@@ -579,6 +581,7 @@ function bindDrop(grid, setId) {
 }
 async function reorder(setId, ids) {
   const s = S.job.sets.find((x) => x.id === setId); if (!s) return;
+  S.actSeq++;
   if (ids.join() === s.order.join()) return;
   s.order = ids; s.manual = true;                                            // show it at once, confirm with the server below
   ids.forEach((id, n) => { const it = itemById(id); if (it) it.pos = n + 1; });
@@ -591,6 +594,24 @@ function shiftItem(id, d) {
   const ids = setOrder(it.set), i = ids.indexOf(id), k = i + d; if (i < 0 || k < 0 || k >= ids.length) return;
   ids.splice(i, 1); ids.splice(k, 0, id); reorder(it.set, ids);
 }
+/* ---- instant feedback: the card moves the moment it is clicked; the server confirms a moment later */
+function localRenumber(setId) { const s = S.job.sets.find((x) => x.id === setId); if (s) s.order.forEach((id, n) => { const i = itemById(id); if (i) i.pos = n + 1; }); }
+function localExclude(id) {
+  const it = itemById(id), s = it && S.job.sets.find((x) => x.id === it.set); if (!it || !s || it.ex) return;
+  const was = s.order.indexOf(id); s.order = s.order.filter((x) => x !== id); Object.assign(it, { ex: true, ex_why: 'user', dup_of: null, restored: false, pos: 0, lp: was < 0 ? null : was });
+  S.job.counts.excluded++; S.job.counts.final--; localRenumber(it.set);
+}
+function localRestore(id) {
+  const it = itemById(id), s = it && S.job.sets.find((x) => x.id === it.set); if (!it || !s || !it.ex) return;
+  const at = it.dup_of && s.order.includes(it.dup_of) ? s.order.indexOf(it.dup_of) + 1 : (it.lp != null ? Math.min(it.lp, s.order.length) : s.order.length);
+  s.order.splice(at, 0, id); Object.assign(it, { ex: false, ex_why: null, restored: true }); S.job.counts.excluded--; S.job.counts.final++; localRenumber(it.set);
+}
+async function fast(path, local) {
+  S.actSeq++; local(); renderJob();
+  try { await api('/jobs/' + S.job.id + path, { method: 'POST', body: {} }); } catch (e) { toast(errText(e), true); }
+  await poll(true);
+}
+function makeMain(id) { const it = itemById(id); if (it && S.job) { const ids = setOrder(it.set).filter((x) => x !== id); reorder(it.set, [id, ...ids]); } }
 async function act(path, body) {
   try { await api('/jobs/' + S.job.id + path, { method: 'POST', body: body || {} }); } catch (e) { toast(errText(e), true); }
   await poll(true);
@@ -648,8 +669,8 @@ function renderModal() {
   $('#m-excl').textContent = it.ex ? t('restore') : t('exclude');
   const dl = $('#m-dl'); dl.classList.toggle('hidden', !done); dl.href = '/api/jobs/' + S.job.id + '/items/' + it.id + '/download';
 }
-$('#m-main').addEventListener('click', () => act('/items/' + S.modalId + '/main'));
-$('#m-excl').addEventListener('click', () => { const it = itemById(S.modalId); if (it) act('/items/' + it.id + (it.ex ? '/restore' : '/exclude')); });
+$('#m-main').addEventListener('click', () => makeMain(S.modalId));
+$('#m-excl').addEventListener('click', () => { const it = itemById(S.modalId); if (it) it.ex ? fast('/items/' + it.id + '/restore', () => localRestore(it.id)) : fast('/items/' + it.id + '/exclude', () => localExclude(it.id)); });
 $('#cmp-after').addEventListener('load', (e) => { const i = e.target; if (i.naturalWidth) { cmp.style.aspectRatio = i.naturalWidth + ' / ' + i.naturalHeight; fitCmp(i); } });
 $('#cmp-before').addEventListener('load', (e) => { const i = e.target; const it = itemById(S.modalId); if (i.naturalWidth && !(it && it.status === 'done')) { cmp.style.aspectRatio = i.naturalWidth + ' / ' + i.naturalHeight; fitCmp(i); } });
 function fitCmp(i) { // keep the stage inside the viewport while preserving the photo's aspect ratio

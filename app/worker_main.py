@@ -6,10 +6,15 @@ as failed, starts a fresh worker and carries on.
 """
 from __future__ import annotations
 
+import os
 import traceback
 
 
 def main(conn, max_pixels: int, threads: int) -> None:
+    try:
+        os.nice(10)                    # editing must never starve the web server (clicks, polling) on a small CPU share
+    except Exception:
+        pass
     from .engine import pipeline
     from .engine.imageio import ImageError
 

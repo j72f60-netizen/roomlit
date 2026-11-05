@@ -88,6 +88,8 @@ class Item:
     user_state: str | None = None    # 'keep' (restored) | 'exclude' (removed by the user)
     sha: str = ""                    # SHA-256 of the uploaded bytes (recognises the very same file arriving twice)
     retouch: list = field(default_factory=list)      # the user's strokes (remove / smooth), see engine/retouch_ops.py
+    last_pos: int | None = None      # where it stood in the gallery when it was set aside: Restore puts it back there
+    pre: dict | None = None          # an edit made in the background for a photo that is currently set aside (instant restore)
 
     @property
     def name(self) -> str:
@@ -387,6 +389,8 @@ class JobStore:
         for it in sorted((i for i in inc if i.id not in have), key=lambda i: (pref_rank.get(i.id, 10 ** 6), name_key(i.name, i.id))):
             if it.dup_of in order and it.user_state == "keep":
                 order.insert(order.index(it.dup_of) + 1, it.id)      # a restored duplicate goes right after its twin
+            elif it.user_state == "keep" and it.last_pos is not None:
+                order.insert(min(it.last_pos, len(order)), it.id)    # a restored photo goes back where it was
             else:
                 order.append(it.id)
             have.add(it.id)
@@ -396,12 +400,15 @@ class JobStore:
         """Remove a photo from the final gallery.  Returns photos promoted so that its angle is still covered."""
         promoted: list[Item] = []
         with job.lock:
+            pset = job.sets[item.set_id]
+            item.last_pos = pset.order.index(item.id) if item.id in pset.order else None
             item.user_state = "exclude"
             dups = [i for i in job.items.values()
                     if i.dup_of == item.id and i.auto_excluded and i.user_state != "exclude"]
             if dups:
                 best = max(dups, key=lambda i: i.score)
                 best.auto_excluded, best.dup_of, best.user_state = False, None, "keep"
+                best.last_pos = item.last_pos                          # the twin takes over the place of the photo that went
                 for o in dups:
                     if o is not best:
                         o.dup_of = best.id
@@ -440,6 +447,7 @@ class JobStore:
     def set_retouch(self, job: Job, item: Item, ops: list) -> None:
         with job.lock:
             item.retouch = list(ops)
+            item.pre = None                                  # a background edit made without these strokes is stale
             job.bump()
 
     def set_room(self, job: Job, item: Item, room: str) -> None:
@@ -501,7 +509,7 @@ class JobStore:
                     "pos": pos.get(it.id, 0), "ex": it.excluded and it.status != "failed",
                     "ex_why": ("user" if it.user_state == "exclude" else it.ex_kind) if it.excluded else None,
                     "dup_of": it.dup_of if it.excluded and it.user_state != "exclude" else None,
-                    "restored": it.user_state == "keep",
+                    "restored": it.user_state == "keep", "lp": it.last_pos,
                     "room": it.room, "room_conf": round(it.room_conf, 2), "room_sure": it.room_sure,
                     "room_alts": it.room_alts, "room_user": it.room_user,
                     "similar": it.similar, "org": it.organized, "renamed": it.renamed, "rt": len(it.retouch),

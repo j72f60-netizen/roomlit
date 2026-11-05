@@ -9,6 +9,7 @@ and the image worker is stopped meanwhile: only one heavy process exists at any 
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import multiprocessing as mp
 import os
@@ -114,14 +115,15 @@ class Dispatcher:
     def __init__(self, cfg: Settings, store: JobStore):
         self.cfg = cfg
         self.store = store
-        self.queue: asyncio.Queue = asyncio.Queue()
+        self.queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
+        self._seq = itertools.count()
         self.worker = WorkerProc(cfg)
         self.ml = WorkerProc(cfg, "ml")
         self._task: asyncio.Task | None = None
         self.busy = False
 
     def start(self) -> None:
-        self.queue = asyncio.Queue()          # bound to the running event loop (matters if the app is started twice)
+        self.queue = asyncio.PriorityQueue()  # bound to the running event loop (matters if the app is started twice)
         self.busy = False
         self._task = asyncio.create_task(self._run(), name="dispatcher")
 
@@ -136,8 +138,12 @@ class Dispatcher:
         return self.queue.qsize() + (1 if self.busy else 0)
 
     # -------------------------------------------------------------- enqueue
+    def _put(self, prio: int, kind: str, job: Job, item_id: int | None, mode: str | None) -> None:
+        """prio 0 = what the user is waiting for (FIFO among themselves); prio 1 = background work that yields to it."""
+        self.queue.put_nowait((prio, next(self._seq), kind, job, item_id, mode))
+
     def enqueue_analyze(self, job: Job, item: Item) -> None:
-        self.queue.put_nowait(("analyze", job, item.id, None))
+        self._put(0, "analyze", job, item.id, None)
 
     def enqueue_process(self, job: Job, item: Item, mode: str) -> None:
         with job.lock:
@@ -145,12 +151,12 @@ class Dispatcher:
             item.mode = mode
             item.error = None
             job.bump()
-        self.queue.put_nowait(("process", job, item.id, mode))
+        self._put(0, "process", job, item.id, mode)
 
     # -------------------------------------------------------------- loop
     async def _run(self) -> None:
         while True:
-            kind, job, item_id, mode = await self.queue.get()
+            _, _, kind, job, item_id, mode = await self.queue.get()
             self.busy = True
             try:
                 if job.deleting:
@@ -163,6 +169,8 @@ class Dispatcher:
                     continue
                 if kind == "analyze":
                     await self._analyze(job, item)
+                elif kind == "preedit":
+                    await self._preedit(job, item, mode)
                 else:
                     await self._process(job, item, mode)
             except asyncio.CancelledError:
@@ -245,13 +253,16 @@ class Dispatcher:
             job.bump()
         for it in queued:
             self.enqueue_process(job, it, mode)
-
-    async def _process(self, job: Job, item: Item, mode: str) -> None:
-        if item.status != "queued" or not os.path.exists(job.p_original(item.id)):
-            return
+        # photos that are set aside are edited quietly afterwards, so "Restore" is instant (see _preedit)
         with job.lock:
-            item.status = "processing"
-            job.bump()
+            aside = sorted((i for i in job.items.values() if i.status == "ready" and i.excluded and i.pre is None),
+                           key=lambda i: (natural_key(i.group), natural_key(i.name), i.id))
+        for it in aside:
+            self._put(1, "preedit", job, it.id, mode)
+
+    async def _edit(self, job: Job, item: Item, mode: str) -> dict:
+        """Run the edit of one photo in the worker (group white balance first).  Raises ImageProblem / WorkerError."""
+        with job.lock:
             group = [i.analysis for i in job.items.values() if i.group == item.group and i.analysis]
         group_wb = None
         if len(group) >= 2:
@@ -259,13 +270,52 @@ class Dispatcher:
                 group_wb = (await asyncio.to_thread(self.worker.call, "group", (group,), 60))["wb"]
             except Exception:
                 group_wb = None
+        return await asyncio.to_thread(
+            self.worker.call, "process",
+            (job.p_original(item.id), job.p_edited(item.id), job.p_preview, item.id, mode,
+             group_wb, self.cfg.max_pixels, ingest.container_for(item.name), list(item.retouch),
+             ENLARGE_TO if job.enlarge else 0),
+            self.cfg.task_timeout_s)
+
+    def adopt_preedit(self, job: Job, item: Item, mode: str) -> bool:
+        """If a finished background edit of this photo is still valid, deliver it now (no waiting)."""
+        with job.lock:
+            p = item.pre
+            if (item.status not in ("ready", "queued") or not p or p["mode"] != mode or p["enlarge"] != job.enlarge
+                    or p["rt"] != len(item.retouch) or not os.path.exists(job.p_edited(item.id))):
+                return False
+            item.out_bytes, item.seconds, item.width, item.height = p["bytes"], p["sec"], p["w"], p["h"]
+            item.mode, item.error, item.status = mode, None, "done"
+            item.version += 1
+            job.edit_version += 1
+            job.downloaded_at = None
+            job.bump()
+            return True
+
+    async def _preedit(self, job: Job, item: Item, mode: str) -> None:
+        """Best effort, lowest priority: edit a photo that is set aside so that restoring it later costs nothing."""
+        if (item.status != "ready" or not item.excluded or item.pre is not None
+                or not os.path.exists(job.p_original(item.id))):
+            return
         try:
-            res = await asyncio.to_thread(
-                self.worker.call, "process",
-                (job.p_original(item.id), job.p_edited(item.id), job.p_preview, item.id, mode,
-                 group_wb, self.cfg.max_pixels, ingest.container_for(item.name), list(item.retouch),
-                 ENLARGE_TO if job.enlarge else 0),
-                self.cfg.task_timeout_s)
+            res = await self._edit(job, item, mode)
+        except (ImageProblem, WorkerError):
+            return
+        with job.lock:
+            if item.status in ("ready", "queued") and not job.deleting:
+                item.pre = {"mode": mode, "enlarge": job.enlarge, "rt": len(item.retouch), "bytes": res["out_bytes"],
+                            "sec": res["seconds"], "w": res["width"], "h": res["height"]}
+
+    async def _process(self, job: Job, item: Item, mode: str) -> None:
+        if item.status != "queued" or not os.path.exists(job.p_original(item.id)):
+            return
+        if self.adopt_preedit(job, item, mode):             # already edited quietly in the background
+            return
+        with job.lock:
+            item.status = "processing"
+            job.bump()
+        try:
+            res = await self._edit(job, item, mode)
         except (ImageProblem, WorkerError) as e:
             self._fail(job, item, str(e), drop_original=isinstance(e, ImageProblem))
             return
@@ -276,6 +326,7 @@ class Dispatcher:
             item.status = "done"
             item.version += 1
             item.error = None
+            item.pre = None
             job.edit_version += 1
             job.downloaded_at = None
             job.bump()
@@ -306,7 +357,7 @@ class Dispatcher:
             job.organizing = True
             job.bump()
         # analysis tasks of these photos are already ahead in the FIFO queue, so they finish before this runs
-        self.queue.put_nowait(("organize", job, None, mode))
+        self._put(0, "organize", job, None, mode)
         return len(todo)
 
     def reprocess(self, job: Job, item: Item, mode: str) -> None:

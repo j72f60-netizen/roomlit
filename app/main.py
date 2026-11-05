@@ -414,7 +414,8 @@ def _set(job: Job, set_id: int):
 def _edit_if_needed(job: Job, it: Item) -> None:
     """A photo that was excluded before it was edited has to be edited when it comes back."""
     if it.status == "ready" and job.sets[it.set_id].organized and it.included:
-        dispatcher.enqueue_process(job, it, job.mode)
+        if not dispatcher.adopt_preedit(job, it, job.mode):          # a finished background edit is delivered at once
+            dispatcher.enqueue_process(job, it, job.mode)
 
 
 @app.post("/api/jobs/{job_id}/items/{item_id}/exclude")

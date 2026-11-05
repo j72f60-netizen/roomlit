@@ -5,10 +5,15 @@ Receives preview JPEGs by path (never the original photos) and returns plain dat
 """
 from __future__ import annotations
 
+import os
 import traceback
 
 
 def main(conn, model_dir: str, threads: int) -> None:
+    try:
+        os.nice(10)
+    except Exception:
+        pass
     from .engine.organize.run import organize
 
     conn.send(("ready", None))
