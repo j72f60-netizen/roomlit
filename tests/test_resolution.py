@@ -82,3 +82,15 @@ def test_enlarge_option_through_the_api(authed):
         got = Image.open(io.BytesIO(c.get(f"/api/jobs/{jid}/items/{it['id']}/download").content))
         assert got.size == size
         c.delete(f"/api/jobs/{jid}", headers=H)
+
+
+def test_pro_is_the_default_and_gives_the_bright_airy_listing_look(tmp_path):
+    from app.engine.presets import DEFAULT_MODE
+    assert DEFAULT_MODE == "pro"
+    dim = synth.scene(w=900, h=600)                                                              # a dim interior (median ~77/255)
+    g0 = cv2.cvtColor(dim, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    g1 = cv2.cvtColor(cv2.imread(run(tmp_path, dim, "pro")[1]), cv2.COLOR_BGR2GRAY).astype(np.float32)
+    g2 = cv2.cvtColor(cv2.imread(run(tmp_path, dim, "premium")[1]), cv2.COLOR_BGR2GRAY).astype(np.float32)
+    assert np.median(g1) > np.median(g0) + 40 and np.median(g1) > np.median(g2) + 25            # clearly brighter than premium
+    assert np.percentile(g1, 5) > np.percentile(g2, 5) + 20                                      # shadows lifted further, not crushed
+    assert (g1 >= 250).mean() < 0.06                                                             # without blowing the highlights

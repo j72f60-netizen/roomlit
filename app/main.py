@@ -118,7 +118,7 @@ async def healthz():
 @app.get("/api/config")
 async def get_config(user: str = Depends(current_user)):
     return {
-        "modes": list(PRESETS), "default_mode": DEFAULT_MODE,
+        "modes": [DEFAULT_MODE] + [m for m in PRESETS if m != DEFAULT_MODE], "default_mode": DEFAULT_MODE,
         "exts": sorted(ingest.IMAGE_EXTS), "max_file_mb": cfg.max_file_mb, "max_zip_mb": cfg.max_zip_mb,
         "max_job_mb": cfg.max_job_mb, "max_files": cfg.max_files_per_job, "max_megapixels": cfg.max_megapixels,
         "job_ttl_minutes": cfg.job_ttl_minutes, "downloaded_ttl_minutes": cfg.downloaded_ttl_minutes,

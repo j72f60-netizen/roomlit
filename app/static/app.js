@@ -8,7 +8,7 @@ const I18N = {
     login_bad: 'Wrong username or password.', login_locked: 'Too many attempts. Try again in {m} min.',
     step_mode: 'Choose an editing mode', step_add: 'Add photos',
     mode_natural: 'Natural', mode_premium: 'Premium Airbnb', mode_bright: 'Bright & Clean', mode_pro: 'Pro Listing',
-    mode_pro_d: 'The full professional brief: brighter with natural shadows, open dark areas, fresh white bedding, brighter blue furniture (same colour) and one consistent look across the set.',
+    mode_pro_d: 'Bright, airy listing look: lifted shadows, clean white walls and bedding, brighter blue furniture (same colour) and one consistent look across the set.',
     enlarge: 'Enhance resolution', enlarge_hint: 'Photos smaller than 2048 px on the long side are enlarged to 2048 px with the same proportions and restored crispness. Bigger photos keep their size.',
     mode_natural_d: 'Subtle exposure, colour, sharpness and noise improvements.',
     mode_premium_d: 'Bright, balanced, professional listing look with natural colours and excellent detail.',
@@ -68,7 +68,7 @@ const I18N = {
     login_bad: 'اسم المستخدم أو كلمة المرور غير صحيحة.', login_locked: 'محاولات كثيرة. حاول مجددًا بعد {m} دقيقة.',
     step_mode: 'اختر نمط التحرير', step_add: 'أضف الصور',
     mode_natural: 'طبيعي', mode_premium: 'بريميوم Airbnb', mode_bright: 'ساطع ونظيف', mode_pro: 'احترافي (حسب المواصفات)',
-    mode_pro_d: 'كل بنود المواصفات الاحترافية: إضاءة أعلى بظلال طبيعية، توضيح المناطق الداكنة، شراشف بيضاء نظيفة، كنب أزرق أفتح بنفس لونه، ومظهر موحّد لكل الصور.',
+    mode_pro_d: 'مظهر ساطع ومفتوح لإعلانات الإيجار: ظلال مرفوعة، جدران وشراشف بيضاء نظيفة، كنب أزرق أفتح بنفس لونه، ومظهر موحّد لكل الصور.',
     enlarge: 'تحسين الدقة', enlarge_hint: 'الصور الأصغر من 2048 بكسل في الضلع الأطول تُكبَّر إلى 2048 بنفس النسب مع استعادة الحدّة. الصور الأكبر تبقى بحجمها.',
     mode_natural_d: 'تحسينات خفيفة في الإضاءة والألوان والحدّة وتقليل التشويش.',
     mode_premium_d: 'مظهر احترافي ساطع ومتوازن لإعلانات الإيجار، بألوان طبيعية وتفاصيل ممتازة.',
@@ -166,7 +166,7 @@ const fmtMB = (b) => (b / 1e6 >= 10 ? Math.round(b / 1e6) : (b / 1e6).toFixed(1)
 
 /* ------------------------------------------------------------------ state */
 const DEFAULT_SUFFIX = 'بعد التعديل';
-const S = { cfg: null, job: null, rev: 0, mode: 'premium', timer: null, sig: '', cards: new Map(), modalId: null,
+const S = { cfg: null, job: null, rev: 0, mode: 'pro', timer: null, sig: '', cards: new Map(), modalId: null,
   up: null, clickedZip: false, clientIgnored: 0, user: null, drag: null,
   numbering: (() => { try { return localStorage.getItem('rl_num3') !== '0'; } catch { return true; } })(),
   smart: (() => { try { return localStorage.getItem('rl_smart2') !== '0'; } catch { return true; } })(),
@@ -217,7 +217,7 @@ function renderModes() {
   for (const m of MODES) {
     const input = h('input', { type: 'radio', name: 'mode', value: m, checked: m === S.mode, onchange: () => { S.mode = m; renderModes(); } });
     box.append(h('label', { class: 'mode' + (m === S.mode ? ' sel' : '') }, input,
-      h('b', {}, t('mode_' + m), m === 'premium' ? h('span', { class: 'pill' }, t('default')) : null), h('p', {}, t('mode_' + m + '_d'))));
+      h('b', {}, t('mode_' + m), S.cfg && m === S.cfg.default_mode ? h('span', { class: 'pill' }, t('default')) : null), h('p', {}, t('mode_' + m + '_d'))));
   }
 }
 function fillModeSelect(sel, value) {

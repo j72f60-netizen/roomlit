@@ -34,6 +34,9 @@ class Preset:
     vibrance: float
     # Overall colourfulness factor.  <1 counteracts the saturation gain that brightening brings.
     saturation: float = 1.0
+    # Where the highlight shoulder starts (None = derived from highlight_recover).  A lower knee compresses bright
+    # surfaces earlier, which is what lets a high-key look keep detail in white walls and linen.
+    knee: float | None = None
 
 
 PRESETS: dict[str, Preset] = {
@@ -88,29 +91,31 @@ PRESETS: dict[str, Preset] = {
         vibrance=0.02,
         saturation=0.92,
     ),
-    # The professional-listing brief in one look: brighter without losing natural shadows, open dark areas, fresh white
-    # bedding (cast removed from whites only) and a visibly brighter blue sofa (same hue, same saturation), consistent
-    # across a folder.  Highlights stay protected, so windows and white linen keep their texture.
+    # The professional-listing brief in one look, tuned against a reference photographer edit of a real living room
+    # (same tonal distribution within a couple of levels, same wall / ceiling / sofa tones): an airy high-key result
+    # with lifted shadows, a soft highlight shoulder (white walls keep their texture), warm-white (not grey) walls,
+    # fresh white bedding (cast removed from whites only) and a visibly brighter blue sofa in the same blue.
     "pro": Preset(
         key="pro",
-        target_median=0.54,
-        max_ev=0.70,
-        wb_strength=0.80,
+        target_median=0.76,
+        max_ev=1.50,
+        wb_strength=0.40,
         wb_max=0.09,
-        shadow_lift=0.55,
-        highlight_recover=0.50,
-        contrast=0.10,
+        shadow_lift=1.20,
+        highlight_recover=0.40,
+        contrast=0.12,
         clarity=0.24,
         sharpen=0.52,
-        denoise=0.70,
+        denoise=0.85,
         whites_clean=0.85,
         blue_lift=0.85,
         vibrance=0.02,
-        saturation=0.95,
+        saturation=0.92,           # brightening already raises colour; this keeps colourful rooms from turning garish
+        knee=0.70,
     ),
 }
 
-DEFAULT_MODE = "premium"
+DEFAULT_MODE = "pro"
 
 
 def get_preset(key: str) -> Preset:

@@ -210,7 +210,7 @@ def _curve(y: np.ndarray, p: Preset) -> np.ndarray:
     """Per-pixel luma curve: gentle contrast about the target median, then a soft highlight shoulder."""
     pivot = p.target_median
     y = y + (4.0 * p.contrast) * y * (1.0 - y) * (y - pivot) if p.contrast else y
-    knee = 0.90 - 0.06 * p.highlight_recover
+    knee = p.knee if p.knee is not None else 0.90 - 0.06 * p.highlight_recover
     w = 1.0 - knee
     t = np.maximum(y - knee, 0.0)
     return y - t + w * np.tanh(t / w)

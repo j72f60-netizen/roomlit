@@ -26,9 +26,10 @@ Never: crop, rotate, resize, add/remove/replace objects, recolour furniture, hid
 “reconstruct” detail, or apply HDR-style tone mapping. Output has the **same pixel dimensions**; EXIF
 (incl. orientation) and the ICC profile are carried over; JPEG quality 94.
 
-Modes: **Natural** (subtle), **Premium Airbnb** (default), **Bright & Clean**, and **Pro Listing** (the full professional brief in one
-look: brighter with natural shadows, open dark areas, fresh white bedding with the cast removed from whites only, brighter
-blue furniture in the same blue, one consistent look across a folder).
+Modes: **Pro Listing** (default: the bright, airy professional-listing look - tuned against a reference photographer edit of
+a real living room, matching its tonal distribution within a couple of levels: lifted shadows, a soft highlight shoulder,
+clean warm-white walls, fresh white bedding, brighter blue furniture in the same blue, one consistent look across a folder),
+**Premium Airbnb** (the earlier, more conservative default), **Natural** (subtle) and **Bright & Clean**.
 
 **Enhance resolution** (page option, on by default): photos smaller than 2048 px on the long side are enlarged to 2048 px (never
 more than 2.5x) with the same proportions - Lanczos plus a thresholded unsharp pass that restores edge crispness without
